@@ -260,6 +260,13 @@ function App() {
     setHistory([historyItem, ...history]);
   };
 
+  const editTask = async (id, newText) => {
+    if (user && isSupabaseConfigured()) {
+      await supabase.from('tasks').update({ text: newText }).eq('id', id);
+    }
+    setTasks(tasks.map(t => t.id === id ? { ...t, text: newText } : t));
+  };
+
   const deleteTask = async (id) => {
     if (user && isSupabaseConfigured()) {
       await supabase.from('tasks').delete().eq('id', id);
@@ -442,6 +449,7 @@ function App() {
                   setTasks([...newOrder, ...otherTasks]);
                 }}
                 onComplete={completeTask}
+                onEdit={editTask}
                 onDelete={deleteTask}
                 onCopy={copyTask}
               />

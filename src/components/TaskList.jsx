@@ -2,7 +2,7 @@ import React from 'react';
 import { Reorder, AnimatePresence } from 'framer-motion';
 import TaskItem from './TaskItem';
 
-function TaskList({ tasks, setTasks, onComplete, onDelete, onCopy }) {
+function TaskList({ tasks, setTasks, onComplete, onDelete, onCopy, onEdit }) {
     if (tasks.length === 0) {
         return (
             <div className="text-center py-12 rounded-xl border border-dashed border-slate-300 dark:border-white/5 bg-slate-50 dark:bg-white/[0.01] text-slate-400 dark:text-slate-500">
@@ -23,6 +23,7 @@ function TaskList({ tasks, setTasks, onComplete, onDelete, onCopy }) {
                             onComplete={onComplete}
                             onDelete={onDelete}
                             onCopy={onCopy}
+                            onEdit={onEdit}
                         />
                     ))}
                 </AnimatePresence>

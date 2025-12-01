@@ -1,9 +1,43 @@
-import React from 'react';
-import { Check, Trash2, Copy, GripVertical } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Check, Trash2, Copy, GripVertical, Edit2 } from 'lucide-react';
 import { Reorder, useDragControls } from 'framer-motion';
 
-function TaskItem({ task, onComplete, onDelete, onCopy }) {
+function TaskItem({ task, onComplete, onDelete, onCopy, onEdit }) {
     const controls = useDragControls();
+    const [isEditing, setIsEditing] = useState(false);
+    const [editText, setEditText] = useState(task.text);
+    const inputRef = useRef(null);
+
+    useEffect(() => {
+        if (isEditing && inputRef.current) {
+            inputRef.current.focus();
+            inputRef.current.select();
+        }
+    }, [isEditing]);
+
+    const handleEdit = () => {
+        setIsEditing(true);
+    };
+
+    const handleSave = () => {
+        if (editText.trim() && editText !== task.text) {
+            onEdit(task.id, editText.trim());
+        }
+        setIsEditing(false);
+    };
+
+    const handleCancel = () => {
+        setEditText(task.text);
+        setIsEditing(false);
+    };
+
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            handleSave();
+        } else if (e.key === 'Escape') {
+            handleCancel();
+        }
+    };
 
     return (
         <Reorder.Item
@@ -25,7 +59,25 @@ function TaskItem({ task, onComplete, onDelete, onCopy }) {
                 >
                     <GripVertical className="w-4 h-4" />
                 </div>
-                <span className="text-sm text-slate-700 dark:text-slate-200 font-medium tracking-tight truncate">{task.text}</span>
+                {isEditing ? (
+                    <input
+                        ref={inputRef}
+                        type="text"
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                        onBlur={handleSave}
+                        onKeyDown={handleKeyDown}
+                        className="flex-1 text-sm text-slate-700 dark:text-slate-200 font-medium tracking-tight bg-transparent border-b border-slate-300 dark:border-slate-600 focus:outline-none focus:border-indigo-500 dark:focus:border-indigo-400 px-1 py-0.5"
+                    />
+                ) : (
+                    <span
+                        className="text-sm text-slate-700 dark:text-slate-200 font-medium tracking-tight truncate cursor-text hover:text-slate-900 dark:hover:text-white transition-colors"
+                        onDoubleClick={handleEdit}
+                        title="Double-click to edit"
+                    >
+                        {task.text}
+                    </span>
+                )}
             </div>
 
             <div className="flex items-center gap-1 flex-shrink-0 relative z-10">
@@ -35,6 +87,13 @@ function TaskItem({ task, onComplete, onDelete, onCopy }) {
                     title="Complete"
                 >
                     <Check className="w-4 h-4" />
+                </button>
+                <button
+                    onClick={handleEdit}
+                    className="p-1.5 text-slate-500 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 rounded-md transition-colors opacity-0 group-hover:opacity-100"
+                    title="Edit task"
+                >
+                    <Edit2 className="w-3.5 h-3.5" />
                 </button>
                 <button
                     onClick={() => onCopy(task.text)}
