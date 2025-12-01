@@ -3,77 +3,178 @@ import TaskInput from './components/TaskInput';
 import TaskList from './components/TaskList';
 import HistoryView from './components/HistoryView';
 import ProjectSidebar from './components/ProjectSidebar';
+import AuthModal from './components/AuthModal';
+import { supabase, isSupabaseConfigured } from './lib/supabase';
+import { LogOut, User, Cloud, CloudOff } from 'lucide-react';
 
 const DEFAULT_PROJECT_ID = 'default';
 
 function App() {
-  // --- State Initialization ---
-  const [projects, setProjects] = useState(() => {
-    const saved = localStorage.getItem('coding-todo-projects');
-    if (saved) return JSON.parse(saved);
-    // Migration: If no projects exist, create default
-    return [{ id: DEFAULT_PROJECT_ID, name: 'Default Project', createdAt: new Date().toISOString() }];
-  });
+  const [user, setUser] = useState(null);
+  const [showAuth, setShowAuth] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [projects, setProjects] = useState([]);
+  const [activeProjectId, setActiveProjectId] = useState(DEFAULT_PROJECT_ID);
+  const [tasks, setTasks] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const [activeProjectId, setActiveProjectId] = useState(() => {
-    const saved = localStorage.getItem('coding-todo-active-project');
-    return saved || DEFAULT_PROJECT_ID;
-  });
-
-  const [tasks, setTasks] = useState(() => {
-    const saved = localStorage.getItem('coding-todo-tasks');
-    let loadedTasks = saved ? JSON.parse(saved) : [];
-
-    // Migration: Assign orphan tasks to default project
-    const hasOrphans = loadedTasks.some(t => !t.projectId);
-    if (hasOrphans) {
-      loadedTasks = loadedTasks.map(t => t.projectId ? t : { ...t, projectId: DEFAULT_PROJECT_ID });
+  // Check if user is logged in
+  useEffect(() => {
+    if (!isSupabaseConfigured()) {
+      loadFromLocalStorage();
+      setLoading(false);
+      return;
     }
-    return loadedTasks;
-  });
 
-  const [history, setHistory] = useState(() => {
-    const saved = localStorage.getItem('coding-todo-history');
-    let loadedHistory = saved ? JSON.parse(saved) : [];
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        loadFromSupabase(session.user.id);
+      } else {
+        loadFromLocalStorage();
+      }
+      setLoading(false);
+    });
 
-    // Migration: Assign orphan history to default project
-    const hasOrphans = loadedHistory.some(t => !t.projectId);
-    if (hasOrphans) {
-      loadedHistory = loadedHistory.map(t => t.projectId ? t : { ...t, projectId: DEFAULT_PROJECT_ID });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        loadFromSupabase(session.user.id);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Load data from localStorage (fallback)
+  const loadFromLocalStorage = () => {
+    const savedProjects = localStorage.getItem('coding-todo-projects');
+    const savedTasks = localStorage.getItem('coding-todo-tasks');
+    const savedHistory = localStorage.getItem('coding-todo-history');
+    const savedActiveProject = localStorage.getItem('coding-todo-active-project');
+
+    setProjects(savedProjects ? JSON.parse(savedProjects) : [
+      { id: DEFAULT_PROJECT_ID, name: 'Default Project', createdAt: new Date().toISOString() }
+    ]);
+    setTasks(savedTasks ? JSON.parse(savedTasks) : []);
+    setHistory(savedHistory ? JSON.parse(savedHistory) : []);
+    setActiveProjectId(savedActiveProject || DEFAULT_PROJECT_ID);
+  };
+
+  // Load data from Supabase
+  const loadFromSupabase = async (userId) => {
+    setSyncing(true);
+    try {
+      const [projectsRes, tasksRes, historyRes] = await Promise.all([
+        supabase.from('projects').select('*').eq('user_id', userId).order('created_at'),
+        supabase.from('tasks').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+        supabase.from('history').select('*').eq('user_id', userId).order('completed_at', { ascending: false })
+      ]);
+
+      if (projectsRes.data && projectsRes.data.length > 0) {
+        setProjects(projectsRes.data.map(p => ({
+          id: p.id,
+          name: p.name,
+          createdAt: p.created_at
+        })));
+        setActiveProjectId(projectsRes.data[0].id);
+      } else {
+        // Create default project
+        const { data: newProject } = await supabase.from('projects').insert({
+          id: DEFAULT_PROJECT_ID,
+          name: 'Default Project',
+          user_id: userId
+        }).select().single();
+
+        setProjects([{ id: newProject.id, name: newProject.name, createdAt: newProject.created_at }]);
+        setActiveProjectId(newProject.id);
+      }
+
+      setTasks(tasksRes.data?.map(t => ({
+        id: t.id,
+        text: t.text,
+        projectId: t.project_id,
+        createdAt: t.created_at
+      })) || []);
+
+      setHistory(historyRes.data?.map(h => ({
+        id: h.id,
+        text: h.text,
+        projectId: h.project_id,
+        createdAt: h.created_at,
+        completedAt: h.completed_at
+      })) || []);
+    } catch (error) {
+      console.error('Error loading from Supabase:', error);
+      loadFromLocalStorage();
+    } finally {
+      setSyncing(false);
     }
-    return loadedHistory;
-  });
+  };
 
-  // --- Persistence Effects ---
+  // Sync to localStorage (fallback)
   useEffect(() => {
-    localStorage.setItem('coding-todo-projects', JSON.stringify(projects));
-  }, [projects]);
+    if (!user) {
+      localStorage.setItem('coding-todo-projects', JSON.stringify(projects));
+      localStorage.setItem('coding-todo-tasks', JSON.stringify(tasks));
+      localStorage.setItem('coding-todo-history', JSON.stringify(history));
+      localStorage.setItem('coding-todo-active-project', activeProjectId);
+    }
+  }, [projects, tasks, history, activeProjectId, user]);
 
-  useEffect(() => {
-    localStorage.setItem('coding-todo-active-project', activeProjectId);
-  }, [activeProjectId]);
+  // Auth handlers
+  const handleAuth = async (email, password, isLogin) => {
+    if (!isSupabaseConfigured()) {
+      throw new Error('Supabase is not configured');
+    }
 
-  useEffect(() => {
-    localStorage.setItem('coding-todo-tasks', JSON.stringify(tasks));
-  }, [tasks]);
+    const { data, error } = isLogin
+      ? await supabase.auth.signInWithPassword({ email, password })
+      : await supabase.auth.signUp({ email, password });
 
-  useEffect(() => {
-    localStorage.setItem('coding-todo-history', JSON.stringify(history));
-  }, [history]);
+    if (error) throw error;
 
-  // --- Project Actions ---
-  const addProject = (name) => {
+    setShowAuth(false);
+    if (data.user) {
+      await loadFromSupabase(data.user.id);
+    }
+  };
+
+  const handleSignOut = async () => {
+    if (isSupabaseConfigured()) {
+      await supabase.auth.signOut();
+    }
+    setUser(null);
+    loadFromLocalStorage();
+  };
+
+  // Project actions
+  const addProject = async (name) => {
     const newProject = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       name,
       createdAt: new Date().toISOString(),
     };
+
+    if (user && isSupabaseConfigured()) {
+      await supabase.from('projects').insert({
+        id: newProject.id,
+        name: newProject.name,
+        user_id: user.id
+      });
+    }
+
     setProjects([...projects, newProject]);
     setActiveProjectId(newProject.id);
   };
 
-  const deleteProject = (id) => {
-    if (projects.length <= 1) return; // Prevent deleting last project
+  const deleteProject = async (id) => {
+    if (projects.length <= 1) return;
+
+    if (user && isSupabaseConfigured()) {
+      await supabase.from('projects').delete().eq('id', id);
+    }
 
     setProjects(projects.filter(p => p.id !== id));
     setTasks(tasks.filter(t => t.projectId !== id));
@@ -84,54 +185,108 @@ function App() {
     }
   };
 
-  const renameProject = (id, newName) => {
+  const renameProject = async (id, newName) => {
+    if (user && isSupabaseConfigured()) {
+      await supabase.from('projects').update({ name: newName }).eq('id', id);
+    }
     setProjects(projects.map(p => p.id === id ? { ...p, name: newName } : p));
   };
 
-  // --- Task Actions ---
-  const addTask = (text) => {
+  // Task actions
+  const addTask = async (text) => {
     const newTask = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       text,
       projectId: activeProjectId,
       createdAt: new Date().toISOString(),
     };
+
+    if (user && isSupabaseConfigured()) {
+      await supabase.from('tasks').insert({
+        id: newTask.id,
+        text: newTask.text,
+        project_id: newTask.projectId,
+        user_id: user.id
+      });
+    }
+
     setTasks([newTask, ...tasks]);
   };
 
-  const completeTask = (id) => {
+  const completeTask = async (id) => {
     const taskToComplete = tasks.find(t => t.id === id);
-    if (taskToComplete) {
-      setTasks(tasks.filter(t => t.id !== id));
-      setHistory([{ ...taskToComplete, completedAt: new Date().toISOString() }, ...history]);
+    if (!taskToComplete) return;
+
+    const historyItem = { ...taskToComplete, completedAt: new Date().toISOString() };
+
+    if (user && isSupabaseConfigured()) {
+      await Promise.all([
+        supabase.from('tasks').delete().eq('id', id),
+        supabase.from('history').insert({
+          id: historyItem.id,
+          text: historyItem.text,
+          project_id: historyItem.projectId,
+          completed_at: historyItem.completedAt,
+          user_id: user.id
+        })
+      ]);
     }
+
+    setTasks(tasks.filter(t => t.id !== id));
+    setHistory([historyItem, ...history]);
   };
 
-  const deleteTask = (id) => {
+  const deleteTask = async (id) => {
+    if (user && isSupabaseConfigured()) {
+      await supabase.from('tasks').delete().eq('id', id);
+    }
     setTasks(tasks.filter(t => t.id !== id));
   };
 
-  const deleteHistoryItem = (id) => {
+  const deleteHistoryItem = async (id) => {
+    if (user && isSupabaseConfigured()) {
+      await supabase.from('history').delete().eq('id', id);
+    }
     setHistory(history.filter(t => t.id !== id));
   };
 
-  const restoreTask = (id) => {
+  const restoreTask = async (id) => {
     const taskToRestore = history.find(t => t.id === id);
-    if (taskToRestore) {
-      setHistory(history.filter(t => t.id !== id));
-      const { completedAt, ...rest } = taskToRestore;
-      setTasks([rest, ...tasks]);
+    if (!taskToRestore) return;
+
+    const { completedAt, ...rest } = taskToRestore;
+
+    if (user && isSupabaseConfigured()) {
+      await Promise.all([
+        supabase.from('history').delete().eq('id', id),
+        supabase.from('tasks').insert({
+          id: rest.id,
+          text: rest.text,
+          project_id: rest.projectId,
+          user_id: user.id
+        })
+      ]);
     }
+
+    setHistory(history.filter(t => t.id !== id));
+    setTasks([rest, ...tasks]);
   };
 
   const copyTask = (text) => {
     navigator.clipboard.writeText(text);
   };
 
-  // --- Filtering ---
   const activeTasks = tasks.filter(t => t.projectId === activeProjectId);
   const activeHistory = history.filter(t => t.projectId === activeProjectId);
   const activeProjectName = projects.find(p => p.id === activeProjectId)?.name || 'Project';
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <div className="text-slate-400">Loading...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-50 flex selection:bg-purple-500/30">
@@ -146,11 +301,41 @@ function App() {
 
       <div className="flex-1 flex flex-col items-center p-8 h-screen overflow-y-auto">
         <div className="w-full max-w-2xl">
-          <header className="mb-12 text-center">
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-pink-500 to-purple-500 bg-clip-text text-transparent mb-2">
-              {activeProjectName}
-            </h1>
-            <p className="text-slate-400">Capture ideas while the AI works.</p>
+          <header className="mb-12">
+            <div className="flex items-center justify-between mb-4">
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-pink-500 to-purple-500 bg-clip-text text-transparent">
+                {activeProjectName}
+              </h1>
+
+              {isSupabaseConfigured() && (
+                <div className="flex items-center gap-2">
+                  {user ? (
+                    <>
+                      <div className="flex items-center gap-2 text-sm text-slate-400">
+                        <Cloud className="w-4 h-4 text-green-400" />
+                        <span>{user.email}</span>
+                      </div>
+                      <button
+                        onClick={handleSignOut}
+                        className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
+                        title="Sign out"
+                      >
+                        <LogOut className="w-4 h-4" />
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => setShowAuth(true)}
+                      className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors text-sm"
+                    >
+                      <User className="w-4 h-4" />
+                      Sign In
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+            <p className="text-slate-400 text-center">Capture ideas while the AI works.</p>
           </header>
 
           <TaskInput onAdd={addTask} />
@@ -158,15 +343,7 @@ function App() {
           <TaskList
             tasks={activeTasks}
             setTasks={(newOrder) => {
-              // Reorder needs to respect the global list
-              // This is tricky with filtering. 
-              // Simple approach: Remove active tasks from global, then append new order.
-              // BUT framer-motion reorder returns the reordered subset.
-
-              // Correct approach for filtered reorder:
-              // 1. Get all other tasks
               const otherTasks = tasks.filter(t => t.projectId !== activeProjectId);
-              // 2. Combine
               setTasks([...newOrder, ...otherTasks]);
             }}
             onComplete={completeTask}
@@ -181,6 +358,13 @@ function App() {
           />
         </div>
       </div>
+
+      {showAuth && (
+        <AuthModal
+          onAuth={handleAuth}
+          onClose={() => setShowAuth(false)}
+        />
+      )}
     </div>
   );
 }
