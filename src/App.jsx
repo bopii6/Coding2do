@@ -306,8 +306,8 @@ function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <div className="text-slate-400">Loading...</div>
+      <div className="min-h-screen bg-white dark:bg-slate-900 flex items-center justify-center">
+        <div className="text-slate-600 dark:text-slate-400">Loading...</div>
       </div>
     );
   }
@@ -390,8 +390,8 @@ function App() {
                           className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 dark:from-emerald-600 dark:to-emerald-500 transition-all duration-500 ease-out"
                           style={{
                             width: `${(activeTasks.length + activeHistory.length) > 0
-                                ? (activeHistory.length / (activeTasks.length + activeHistory.length)) * 100
-                                : 0
+                              ? (activeHistory.length / (activeTasks.length + activeHistory.length)) * 100
+                              : 0
                               }%`
                           }}
                         />

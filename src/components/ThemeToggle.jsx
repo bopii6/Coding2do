@@ -3,31 +3,33 @@ import { Moon, Sun } from 'lucide-react';
 
 function ThemeToggle() {
     const [theme, setTheme] = useState(() => {
-        if (typeof window !== 'undefined') {
-            const savedTheme = localStorage.getItem('theme') || 'dark';
-            // Set dark class immediately on mount
-            if (savedTheme === 'dark') {
-                document.documentElement.classList.add('dark');
-            } else {
-                document.documentElement.classList.remove('dark');
-            }
-            return savedTheme;
-        }
-        return 'dark';
+        // Check localStorage first, default to 'dark'
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        return savedTheme;
     });
 
+    // Apply theme on mount and when it changes
     useEffect(() => {
-        const root = window.document.documentElement;
+        const root = document.documentElement;
+
         if (theme === 'dark') {
             root.classList.add('dark');
         } else {
             root.classList.remove('dark');
         }
+
         localStorage.setItem('theme', theme);
+
+        // Debug log
+        console.log('Theme changed to:', theme, 'Dark class present:', root.classList.contains('dark'));
     }, [theme]);
 
     const toggleTheme = () => {
-        setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+        setTheme(prev => {
+            const newTheme = prev === 'dark' ? 'light' : 'dark';
+            console.log('Toggling theme from', prev, 'to', newTheme);
+            return newTheme;
+        });
     };
 
     return (
