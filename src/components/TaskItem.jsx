@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Check, Trash2, Copy, GripVertical, Edit2 } from 'lucide-react';
 import { Reorder, useDragControls } from 'framer-motion';
+import confetti from 'canvas-confetti';
 
 function TaskItem({ task, onComplete, onDelete, onCopy, onEdit }) {
     const controls = useDragControls();
@@ -82,7 +83,22 @@ function TaskItem({ task, onComplete, onDelete, onCopy, onEdit }) {
 
             <div className="flex items-center gap-1 flex-shrink-0 relative z-10">
                 <button
-                    onClick={() => onComplete(task.id)}
+                    onClick={(e) => {
+                        const rect = e.target.getBoundingClientRect();
+                        const x = (rect.left + rect.width / 2) / window.innerWidth;
+                        const y = (rect.top + rect.height / 2) / window.innerHeight;
+
+                        confetti({
+                            particleCount: 50,
+                            spread: 60,
+                            origin: { x, y },
+                            colors: ['#10b981', '#34d399', '#059669', '#ffffff'],
+                            disableForReducedMotion: true,
+                            zIndex: 1000,
+                        });
+
+                        onComplete(task.id);
+                    }}
                     className="p-2 text-slate-500 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded-md transition-all duration-200 hover:scale-110"
                     title="Complete"
                 >

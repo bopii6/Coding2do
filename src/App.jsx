@@ -19,6 +19,7 @@ function App() {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Load data from localStorage (fallback)
   const loadFromLocalStorage = useCallback(() => {
@@ -319,6 +320,10 @@ function App() {
     );
   }
 
+
+
+  // ... (existing code)
+
   return (
     <div className="relative min-h-screen bg-white dark:bg-[#020617] text-slate-900 dark:text-slate-50 overflow-hidden selection:bg-indigo-200 dark:selection:bg-indigo-500/30 transition-colors duration-300">
       {/* Subtle Gradient Background */}
@@ -327,33 +332,40 @@ function App() {
 
       <div className="relative z-10 flex min-h-screen">
         {/* Mobile Menu Overlay */}
-        {mobileMenuOpen && (
+        {(mobileMenuOpen || (sidebarOpen && window.innerWidth < 1024)) && (
           <div
             className="fixed inset-0 bg-black/60 z-40 lg:hidden backdrop-blur-sm"
-            onClick={() => setMobileMenuOpen(false)}
+            onClick={() => {
+              setMobileMenuOpen(false);
+              setSidebarOpen(false);
+            }}
           />
         )}
 
-        {/* Sidebar - Desktop: always visible, Mobile: drawer */}
+        {/* Sidebar - Desktop: collapsible, Mobile: drawer */}
         <div className={`
           fixed lg:static inset-y-0 left-0 z-50
-          transform transition-transform duration-300 ease-in-out
-          ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+          transform transition-all duration-300 ease-in-out
+          ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
+          ${sidebarOpen ? 'lg:w-72 lg:translate-x-0' : 'lg:w-0 lg:overflow-hidden'}
+          bg-slate-50 dark:bg-[#020617] border-r border-slate-200 dark:border-white/5
         `}>
-          <ProjectSidebar
-            projects={projects}
-            activeProjectId={activeProjectId}
-            onSelectProject={(id) => {
-              setActiveProjectId(id);
-              setMobileMenuOpen(false);
-            }}
-            onAddProject={addProject}
-            onDeleteProject={deleteProject}
-            onRenameProject={renameProject}
-          />
+          <div className="w-64 lg:w-72 h-full">
+            <ProjectSidebar
+              projects={projects}
+              activeProjectId={activeProjectId}
+              onSelectProject={(id) => {
+                setActiveProjectId(id);
+                setMobileMenuOpen(false);
+              }}
+              onAddProject={addProject}
+              onDeleteProject={deleteProject}
+              onRenameProject={renameProject}
+            />
+          </div>
         </div>
 
-        <div className="flex-1 flex flex-col h-screen overflow-y-auto">
+        <div className="flex-1 flex flex-col h-screen overflow-y-auto transition-all duration-300">
           {/* Mobile Header with Hamburger */}
           <div className="lg:hidden sticky top-0 z-30 bg-white/80 dark:bg-[#020617]/80 backdrop-blur-md border-b border-slate-200 dark:border-white/5 px-4 py-3 flex items-center justify-between">
             <button
@@ -384,9 +396,18 @@ function App() {
               <header className="space-y-2 mb-8">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                   <div className="flex-1">
-                    <h1 className="text-2xl sm:text-3xl font-semibold text-slate-900 dark:text-white tracking-tight">
-                      {activeProjectName}
-                    </h1>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setSidebarOpen(!sidebarOpen)}
+                        className="hidden lg:flex p-2 -ml-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-colors"
+                        title={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+                      >
+                        <Menu className="w-5 h-5" />
+                      </button>
+                      <h1 className="text-2xl sm:text-3xl font-semibold text-slate-900 dark:text-white tracking-tight">
+                        {activeProjectName}
+                      </h1>
+                    </div>
                     <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm sm:text-base">
                       Focus on what matters.
                     </p>

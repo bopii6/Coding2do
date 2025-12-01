@@ -28,12 +28,14 @@ function ProjectSidebar({ projects, activeProjectId, onSelectProject, onAddProje
     return (
         <div className="w-64 lg:w-72 bg-slate-50 dark:bg-[#020617] border-r border-slate-200 dark:border-white/5 flex flex-col h-screen sticky top-0">
             <div className="p-6 border-b border-slate-200 dark:border-white/5">
-                <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-slate-200 dark:bg-white/5 text-slate-700 dark:text-slate-200">
-                        <Folder className="w-4 h-4" />
-                    </div>
-                    <div>
-                        <h2 className="text-sm font-medium text-slate-700 dark:text-slate-200">Projects</h2>
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-slate-200 dark:bg-white/5 text-slate-700 dark:text-slate-200">
+                            <Folder className="w-4 h-4" />
+                        </div>
+                        <div>
+                            <h2 className="text-sm font-medium text-slate-700 dark:text-slate-200">Projects</h2>
+                        </div>
                     </div>
                 </div>
             </div>
