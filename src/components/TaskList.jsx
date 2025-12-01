@@ -5,8 +5,9 @@ import TaskItem from './TaskItem';
 function TaskList({ tasks, setTasks, onComplete, onDelete, onCopy }) {
     if (tasks.length === 0) {
         return (
-            <div className="text-center py-12 text-slate-500 border-2 border-dashed border-slate-700/50 rounded-lg">
-                <p>No tasks in queue. Capture an idea above!</p>
+            <div className="text-center py-16 rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl text-slate-400 shadow-inner shadow-slate-900/30">
+                <p className="text-lg font-medium">Queue is calm</p>
+                <p className="text-sm text-slate-500 mt-2">Capture an idea above to keep momentum.</p>
             </div>
         );
     }
