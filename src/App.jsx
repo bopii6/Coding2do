@@ -5,7 +5,7 @@ import HistoryView from './components/HistoryView';
 import ProjectSidebar from './components/ProjectSidebar';
 import AuthModal from './components/AuthModal';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
-import { LogOut, User, Cloud, CloudOff } from 'lucide-react';
+import { LogOut, User, Cloud, Menu, X } from 'lucide-react';
 
 const DEFAULT_PROJECT_ID = 'default';
 
@@ -18,6 +18,7 @@ function App() {
   const [tasks, setTasks] = useState([]);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Check if user is logged in
   useEffect(() => {
@@ -290,72 +291,118 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-50 flex selection:bg-purple-500/30">
-      <ProjectSidebar
-        projects={projects}
-        activeProjectId={activeProjectId}
-        onSelectProject={setActiveProjectId}
-        onAddProject={addProject}
-        onDeleteProject={deleteProject}
-        onRenameProject={renameProject}
-      />
+      {/* Mobile Menu Overlay */}
+      {mobileMenuOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
 
-      <div className="flex-1 flex flex-col items-center p-8 h-screen overflow-y-auto">
-        <div className="w-full max-w-2xl">
-          <header className="mb-12">
-            <div className="flex items-center justify-between mb-4">
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-pink-500 to-purple-500 bg-clip-text text-transparent">
-                {activeProjectName}
-              </h1>
+      {/* Sidebar - Desktop: always visible, Mobile: drawer */}
+      <div className={`
+        fixed lg:static inset-y-0 left-0 z-50
+        transform transition-transform duration-300 ease-in-out
+        ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+      `}>
+        <ProjectSidebar
+          projects={projects}
+          activeProjectId={activeProjectId}
+          onSelectProject={(id) => {
+            setActiveProjectId(id);
+            setMobileMenuOpen(false);
+          }}
+          onAddProject={addProject}
+          onDeleteProject={deleteProject}
+          onRenameProject={renameProject}
+        />
+      </div>
 
-              {isSupabaseConfigured() && (
-                <div className="flex items-center gap-2">
-                  {user ? (
-                    <>
-                      <div className="flex items-center gap-2 text-sm text-slate-400">
-                        <Cloud className="w-4 h-4 text-green-400" />
-                        <span>{user.email}</span>
+      <div className="flex-1 flex flex-col h-screen overflow-y-auto">
+        {/* Mobile Header with Hamburger */}
+        <div className="lg:hidden sticky top-0 z-30 bg-slate-900/95 backdrop-blur-sm border-b border-slate-800 px-4 py-3 flex items-center justify-between">
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors"
+          >
+            {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </button>
+
+          <h2 className="text-lg font-semibold text-slate-200 truncate">
+            {activeProjectName}
+          </h2>
+
+          {isSupabaseConfigured() && user && (
+            <button
+              onClick={handleSignOut}
+              className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
+              title="Sign out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Main Content */}
+        <div className="flex-1 flex flex-col items-center p-4 sm:p-6 lg:p-8">
+          <div className="w-full max-w-2xl">
+            <header className="mb-8 lg:mb-12">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
+                <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-pink-500 to-purple-500 bg-clip-text text-transparent">
+                  <span className="hidden lg:inline">{activeProjectName}</span>
+                  <span className="lg:hidden">Coding Queue</span>
+                </h1>
+
+                {isSupabaseConfigured() && (
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    {user ? (
+                      <div className="hidden lg:flex items-center gap-2">
+                        <div className="flex items-center gap-2 text-sm text-slate-400">
+                          <Cloud className="w-4 h-4 text-green-400" />
+                          <span className="hidden xl:inline">{user.email}</span>
+                        </div>
+                        <button
+                          onClick={handleSignOut}
+                          className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
+                          title="Sign out"
+                        >
+                          <LogOut className="w-4 h-4" />
+                        </button>
                       </div>
+                    ) : (
                       <button
-                        onClick={handleSignOut}
-                        className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
-                        title="Sign out"
+                        onClick={() => setShowAuth(true)}
+                        className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors text-sm w-full sm:w-auto justify-center"
                       >
-                        <LogOut className="w-4 h-4" />
+                        <User className="w-4 h-4" />
+                        Sign In
                       </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => setShowAuth(true)}
-                      className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors text-sm"
-                    >
-                      <User className="w-4 h-4" />
-                      Sign In
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-            <p className="text-slate-400 text-center">Capture ideas while the AI works.</p>
-          </header>
+                    )}
+                  </div>
+                )}
+              </div>
+              <p className="text-slate-400 text-center text-sm sm:text-base">Capture ideas while the AI works.</p>
+            </header>
 
-          <TaskInput onAdd={addTask} />
+            <TaskInput onAdd={addTask} />
 
-          <TaskList
-            tasks={activeTasks}
-            setTasks={(newOrder) => {
-              const otherTasks = tasks.filter(t => t.projectId !== activeProjectId);
-              setTasks([...newOrder, ...otherTasks]);
-            }}
-            onComplete={completeTask}
-            onDelete={deleteTask}
-            onCopy={copyTask}
-          />
+            <TaskList
+              tasks={activeTasks}
+              setTasks={(newOrder) => {
+                const otherTasks = tasks.filter(t => t.projectId !== activeProjectId);
+                setTasks([...newOrder, ...otherTasks]);
+              }}
+              onComplete={completeTask}
+              onDelete={deleteTask}
+              onCopy={copyTask}
+            />
 
-          <HistoryView
-            history={activeHistory}
-            onRestore={restoreTask}
-            onDelete={deleteHistoryItem}
-          />
+            <HistoryView
+              history={activeHistory}
+              onRestore={restoreTask}
+              onDelete={deleteHistoryItem}
+            />
+          </div>
         </div>
       </div>
 
