@@ -4,7 +4,14 @@ import { Moon, Sun } from 'lucide-react';
 function ThemeToggle() {
     const [theme, setTheme] = useState(() => {
         if (typeof window !== 'undefined') {
-            return localStorage.getItem('theme') || 'dark';
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            // Set dark class immediately on mount
+            if (savedTheme === 'dark') {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+            return savedTheme;
         }
         return 'dark';
     });
