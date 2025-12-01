@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { LogIn, UserPlus, Mail, Lock, Loader2 } from 'lucide-react';
 
 function AuthModal({ onAuth, onClose }) {
@@ -25,7 +25,7 @@ function AuthModal({ onAuth, onClose }) {
 
     return (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <motion.div
+            <Motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 className="bg-slate-800 rounded-2xl p-8 max-w-md w-full border border-slate-700 shadow-2xl"
@@ -118,7 +118,7 @@ function AuthModal({ onAuth, onClose }) {
                 >
                     Continue without account
                 </button>
-            </motion.div>
+            </Motion.div>
         </div>
     );
 }

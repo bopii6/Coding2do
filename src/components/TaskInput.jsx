@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Plus, Sparkles } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 function TaskInput({ onAdd }) {
     const [text, setText] = useState('');
@@ -27,14 +27,14 @@ function TaskInput({ onAdd }) {
                         className="w-full bg-transparent text-white placeholder-slate-400 focus:outline-none py-3 px-2"
                         autoFocus
                     />
-                    <motion.button
+                    <Motion.button
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         type="submit"
                         className="bg-purple-600 hover:bg-purple-500 text-white p-2 rounded-md transition-colors"
                     >
                         <Plus className="w-5 h-5" />
-                    </motion.button>
+                    </Motion.button>
                 </div>
             </div>
         </form>

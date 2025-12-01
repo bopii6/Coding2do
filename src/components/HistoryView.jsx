@@ -1,6 +1,6 @@
 import React from 'react';
 import { Clock, Trash2, RotateCcw } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion as Motion, AnimatePresence } from 'framer-motion';
 
 function HistoryView({ history, onRestore, onDelete }) {
     if (history.length === 0) {
@@ -20,7 +20,7 @@ function HistoryView({ history, onRestore, onDelete }) {
             <div className="space-y-2">
                 <AnimatePresence mode='popLayout'>
                     {history.map((item) => (
-                        <motion.div
+                        <Motion.div
                             key={item.id}
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
@@ -46,7 +46,7 @@ function HistoryView({ history, onRestore, onDelete }) {
                                     <Trash2 className="w-4 h-4" />
                                 </button>
                             </div>
-                        </motion.div>
+                        </Motion.div>
                     ))}
                 </AnimatePresence>
             </div>

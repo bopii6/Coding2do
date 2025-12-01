@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { Folder, Plus, MoreVertical, Trash2, Edit2 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Folder, Plus, Trash2, Edit2 } from 'lucide-react';
 import clsx from 'clsx';
 
 function ProjectSidebar({ projects, activeProjectId, onSelectProject, onAddProject, onDeleteProject, onRenameProject }) {

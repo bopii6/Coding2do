@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import TaskInput from './components/TaskInput';
 import TaskList from './components/TaskList';
 import HistoryView from './components/HistoryView';
@@ -12,13 +12,101 @@ const DEFAULT_PROJECT_ID = 'default';
 function App() {
   const [user, setUser] = useState(null);
   const [showAuth, setShowAuth] = useState(false);
-  const [syncing, setSyncing] = useState(false);
   const [projects, setProjects] = useState([]);
   const [activeProjectId, setActiveProjectId] = useState(DEFAULT_PROJECT_ID);
   const [tasks, setTasks] = useState([]);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Load data from localStorage (fallback)
+  const loadFromLocalStorage = useCallback(() => {
+    const savedProjects = localStorage.getItem('coding-todo-projects');
+    const savedTasks = localStorage.getItem('coding-todo-tasks');
+    const savedHistory = localStorage.getItem('coding-todo-history');
+    const savedActiveProject = localStorage.getItem('coding-todo-active-project');
+
+    setProjects(savedProjects ? JSON.parse(savedProjects) : [
+      { id: DEFAULT_PROJECT_ID, name: 'Default Project', createdAt: new Date().toISOString() }
+    ]);
+    setTasks(savedTasks ? JSON.parse(savedTasks) : []);
+    setHistory(savedHistory ? JSON.parse(savedHistory) : []);
+    setActiveProjectId(savedActiveProject || DEFAULT_PROJECT_ID);
+  }, []);
+
+  // Load data from Supabase
+  const loadFromSupabase = useCallback(async (userId) => {
+    if (!supabase || !userId) {
+      loadFromLocalStorage();
+      return;
+    }
+
+    try {
+      const [projectsRes, tasksRes, historyRes] = await Promise.all([
+        supabase.from('projects').select('*').eq('user_id', userId).order('created_at'),
+        supabase.from('tasks').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+        supabase.from('history').select('*').eq('user_id', userId).order('completed_at', { ascending: false })
+      ]);
+
+      const firstError = [projectsRes, tasksRes, historyRes].find(res => res.error);
+      if (firstError?.error) {
+        throw firstError.error;
+      }
+
+      let normalizedProjects = [];
+      if (projectsRes.data && projectsRes.data.length > 0) {
+        normalizedProjects = projectsRes.data.map(p => ({
+          id: p.id,
+          name: p.name,
+          createdAt: p.created_at
+        }));
+      } else {
+        // Create default project for new Supabase users with a proper UUID
+        const defaultProject = {
+          id: crypto.randomUUID(),
+          name: 'Default Project',
+          user_id: userId
+        };
+
+        const { data: newProject, error: insertError } = await supabase
+          .from('projects')
+          .insert(defaultProject)
+          .select()
+          .single();
+
+        if (insertError || !newProject) {
+          throw insertError || new Error('Failed to create default project');
+        }
+
+        normalizedProjects = [{
+          id: newProject.id,
+          name: newProject.name,
+          createdAt: newProject.created_at
+        }];
+      }
+
+      setProjects(normalizedProjects);
+      setActiveProjectId(normalizedProjects[0]?.id || DEFAULT_PROJECT_ID);
+
+      setTasks(tasksRes.data?.map(t => ({
+        id: t.id,
+        text: t.text,
+        projectId: t.project_id,
+        createdAt: t.created_at
+      })) || []);
+
+      setHistory(historyRes.data?.map(h => ({
+        id: h.id,
+        text: h.text,
+        projectId: h.project_id,
+        createdAt: h.created_at,
+        completedAt: h.completed_at
+      })) || []);
+    } catch (error) {
+      console.error('Error loading from Supabase:', error);
+      loadFromLocalStorage();
+    }
+  }, [loadFromLocalStorage]);
 
   // Check if user is logged in
   useEffect(() => {
@@ -46,73 +134,7 @@ function App() {
     });
 
     return () => subscription.unsubscribe();
-  }, []);
-
-  // Load data from localStorage (fallback)
-  const loadFromLocalStorage = () => {
-    const savedProjects = localStorage.getItem('coding-todo-projects');
-    const savedTasks = localStorage.getItem('coding-todo-tasks');
-    const savedHistory = localStorage.getItem('coding-todo-history');
-    const savedActiveProject = localStorage.getItem('coding-todo-active-project');
-
-    setProjects(savedProjects ? JSON.parse(savedProjects) : [
-      { id: DEFAULT_PROJECT_ID, name: 'Default Project', createdAt: new Date().toISOString() }
-    ]);
-    setTasks(savedTasks ? JSON.parse(savedTasks) : []);
-    setHistory(savedHistory ? JSON.parse(savedHistory) : []);
-    setActiveProjectId(savedActiveProject || DEFAULT_PROJECT_ID);
-  };
-
-  // Load data from Supabase
-  const loadFromSupabase = async (userId) => {
-    setSyncing(true);
-    try {
-      const [projectsRes, tasksRes, historyRes] = await Promise.all([
-        supabase.from('projects').select('*').eq('user_id', userId).order('created_at'),
-        supabase.from('tasks').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
-        supabase.from('history').select('*').eq('user_id', userId).order('completed_at', { ascending: false })
-      ]);
-
-      if (projectsRes.data && projectsRes.data.length > 0) {
-        setProjects(projectsRes.data.map(p => ({
-          id: p.id,
-          name: p.name,
-          createdAt: p.created_at
-        })));
-        setActiveProjectId(projectsRes.data[0].id);
-      } else {
-        // Create default project
-        const { data: newProject } = await supabase.from('projects').insert({
-          id: DEFAULT_PROJECT_ID,
-          name: 'Default Project',
-          user_id: userId
-        }).select().single();
-
-        setProjects([{ id: newProject.id, name: newProject.name, createdAt: newProject.created_at }]);
-        setActiveProjectId(newProject.id);
-      }
-
-      setTasks(tasksRes.data?.map(t => ({
-        id: t.id,
-        text: t.text,
-        projectId: t.project_id,
-        createdAt: t.created_at
-      })) || []);
-
-      setHistory(historyRes.data?.map(h => ({
-        id: h.id,
-        text: h.text,
-        projectId: h.project_id,
-        createdAt: h.created_at,
-        completedAt: h.completed_at
-      })) || []);
-    } catch (error) {
-      console.error('Error loading from Supabase:', error);
-      loadFromLocalStorage();
-    } finally {
-      setSyncing(false);
-    }
-  };
+  }, [loadFromLocalStorage, loadFromSupabase]);
 
   // Sync to localStorage (fallback)
   useEffect(() => {
@@ -255,7 +277,7 @@ function App() {
     const taskToRestore = history.find(t => t.id === id);
     if (!taskToRestore) return;
 
-    const { completedAt, ...rest } = taskToRestore;
+    const { completedAt: _completedAt, ...rest } = taskToRestore;
 
     if (user && isSupabaseConfigured()) {
       await Promise.all([
