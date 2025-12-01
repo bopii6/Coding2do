@@ -26,28 +26,27 @@ function ProjectSidebar({ projects, activeProjectId, onSelectProject, onAddProje
     };
 
     return (
-        <div className="w-64 lg:w-72 bg-white/[0.03] border-r border-white/10 backdrop-blur-2xl flex flex-col h-screen sticky top-0 shadow-[0_15px_80px_rgba(2,6,23,0.85)]">
-            <div className="p-6 border-b border-white/10">
+        <div className="w-64 lg:w-72 bg-[#020617] border-r border-white/5 flex flex-col h-screen sticky top-0">
+            <div className="p-6 border-b border-white/5">
                 <div className="flex items-center gap-3">
-                    <div className="p-3 rounded-2xl bg-gradient-to-br from-purple-500/30 to-fuchsia-500/30 text-fuchsia-100">
-                        <Folder className="w-5 h-5" />
+                    <div className="p-2 rounded-lg bg-white/5 text-slate-200">
+                        <Folder className="w-4 h-4" />
                     </div>
                     <div>
-                        <p className="text-xs uppercase tracking-[0.4em] text-slate-400">Spaces</p>
-                        <h2 className="text-lg font-semibold text-white">Projects</h2>
+                        <h2 className="text-sm font-medium text-slate-200">Projects</h2>
                     </div>
                 </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-1">
+            <div className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
                 {projects.map((project) => (
                     <div
                         key={project.id}
                         className={clsx(
-                            "group flex items-center justify-between px-3 py-2 rounded-2xl cursor-pointer transition-all border",
+                            "group flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-all",
                             activeProjectId === project.id
-                                ? "bg-gradient-to-r from-purple-500/30 to-sky-500/20 border-white/20 text-white shadow-lg shadow-purple-900/30"
-                                : "text-slate-400 border-transparent hover:border-white/10 hover:bg-white/[0.03]"
+                                ? "bg-white/5 text-white"
+                                : "text-slate-400 hover:text-slate-200 hover:bg-white/[0.02]"
                         )}
                         onClick={() => onSelectProject(project.id)}
                     >
@@ -57,23 +56,26 @@ function ProjectSidebar({ projects, activeProjectId, onSelectProject, onAddProje
                                     type="text"
                                     value={editName}
                                     onChange={(e) => setEditName(e.target.value)}
-                                    className="w-full bg-transparent text-slate-200 px-2 py-1 rounded text-sm focus:outline-none focus:ring-1 focus:ring-purple-500/60"
+                                    className="w-full bg-transparent text-slate-200 px-2 py-1 rounded text-sm focus:outline-none focus:ring-1 focus:ring-slate-700"
                                     autoFocus
                                     onBlur={() => setEditingId(null)}
                                 />
                             </form>
                         ) : (
-                            <span className="truncate font-medium flex-1">{project.name}</span>
+                            <span className="truncate text-sm font-medium flex-1">{project.name}</span>
                         )}
 
-                        <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1">
+                        <div className={clsx(
+                            "flex items-center gap-1 transition-opacity",
+                            activeProjectId === project.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                        )}>
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     setEditingId(project.id);
                                     setEditName(project.name);
                                 }}
-                                className="p-1.5 rounded-lg hover:bg-white/10"
+                                className="p-1.5 rounded-md hover:bg-white/10 text-slate-500 hover:text-slate-300"
                             >
                                 <Edit2 className="w-3 h-3" />
                             </button>
@@ -85,7 +87,7 @@ function ProjectSidebar({ projects, activeProjectId, onSelectProject, onAddProje
                                             onDeleteProject(project.id);
                                         }
                                     }}
-                                    className="p-1.5 rounded-lg hover:bg-red-500/10 hover:text-red-300"
+                                    className="p-1.5 rounded-md hover:bg-red-500/10 hover:text-red-400 text-slate-500"
                                 >
                                     <Trash2 className="w-3 h-3" />
                                 </button>
@@ -100,8 +102,8 @@ function ProjectSidebar({ projects, activeProjectId, onSelectProject, onAddProje
                             type="text"
                             value={newProjectName}
                             onChange={(e) => setNewProjectName(e.target.value)}
-                            placeholder="Project Name..."
-                            className="w-full bg-white/[0.02] text-slate-200 px-3 py-2 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-purple-500/60 border border-white/10"
+                            placeholder="New Project..."
+                            className="w-full bg-white/[0.02] text-slate-200 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-slate-700 border border-white/5"
                             autoFocus
                             onBlur={() => !newProjectName && setIsAdding(false)}
                         />
@@ -109,7 +111,7 @@ function ProjectSidebar({ projects, activeProjectId, onSelectProject, onAddProje
                 ) : (
                     <button
                         onClick={() => setIsAdding(true)}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-slate-400 hover:text-purple-200 hover:bg-white/[0.04] rounded-2xl transition-colors text-sm font-medium"
+                        className="w-full flex items-center gap-2 px-3 py-2 text-slate-500 hover:text-slate-300 hover:bg-white/[0.02] rounded-lg transition-colors text-sm font-medium mt-2"
                     >
                         <Plus className="w-4 h-4" />
                         Add Project

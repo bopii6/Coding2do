@@ -14,34 +14,28 @@ function TaskInput({ onAdd }) {
     };
 
     return (
-        <form onSubmit={handleSubmit} className="w-full mb-10">
+        <form onSubmit={handleSubmit} className="w-full mb-8">
             <div className="relative group">
-                <div className="absolute -inset-[3px] bg-gradient-to-r from-fuchsia-500 via-purple-500 to-sky-500 opacity-60 group-hover:opacity-100 blur-xl rounded-2xl transition duration-500" />
-                <div className="relative rounded-2xl border border-white/10 bg-slate-900/70 backdrop-blur-xl p-4 sm:p-5 shadow-[0_25px_60px_rgba(2,6,23,0.7)]">
-                    <div className="flex items-center gap-3">
-                        <div className="p-3 rounded-xl bg-gradient-to-br from-fuchsia-500/40 to-purple-500/40 text-fuchsia-100 shadow-inner shadow-fuchsia-900/40">
+                <div className="relative rounded-xl bg-white/[0.03] border border-white/10 focus-within:border-white/20 focus-within:bg-white/[0.05] transition-all duration-300">
+                    <div className="flex items-center p-2">
+                        <div className="p-3 text-slate-400">
                             <Sparkles className="w-5 h-5" />
                         </div>
-                        <div className="flex-1">
-                            <p className="text-xs uppercase tracking-[0.3em] text-slate-400 mb-1">Idea capture</p>
-                            <div className="flex items-center gap-3">
-                                <input
-                                    type="text"
-                                    value={text}
-                                    onChange={(e) => setText(e.target.value)}
-                                    placeholder="What's your next idea? (e.g. 'Refactor auth middleware')"
-                                    className="w-full bg-transparent text-lg text-white placeholder-slate-400 focus:outline-none"
-                                />
-                                <Motion.button
-                                    whileHover={{ scale: 1.05 }}
-                                    whileTap={{ scale: 0.95 }}
-                                    type="submit"
-                                    className="shrink-0 rounded-xl bg-gradient-to-r from-fuchsia-500 to-purple-500 px-4 py-3 text-white font-semibold shadow-lg shadow-fuchsia-900/40"
-                                >
-                                    <Plus className="w-5 h-5" />
-                                </Motion.button>
-                            </div>
-                        </div>
+                        <input
+                            type="text"
+                            value={text}
+                            onChange={(e) => setText(e.target.value)}
+                            placeholder="Add a new task..."
+                            className="flex-1 bg-transparent text-base text-white placeholder-slate-500 focus:outline-none py-2"
+                        />
+                        <Motion.button
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
+                            type="submit"
+                            className="shrink-0 rounded-lg bg-white text-black px-4 py-2 text-sm font-medium hover:bg-slate-200 transition-colors mr-1"
+                        >
+                            Add
+                        </Motion.button>
                     </div>
                 </div>
             </div>
