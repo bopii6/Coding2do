@@ -14,6 +14,7 @@ const DEFAULT_PROJECT_ID = 'default';
 const PRIORITY_LEVELS = ['later', 'now'];
 const DEFAULT_PRIORITY = 'later';
 
+const SUPABASE_AUTH_TIMEOUT = 10000;
 const normalizePriority = (value) => (PRIORITY_LEVELS.includes(value) ? value : DEFAULT_PRIORITY);
 const priorityToWeight = (priority) => {
   const normalized = normalizePriority(priority);
@@ -48,6 +49,75 @@ const hydrateHistoryItem = (item) => ({
   priority: normalizePriority(item.priority ?? weightToPriority(item.priority_weight ?? 0)),
 });
 
+const createDefaultProjectList = () => ([
+  { id: DEFAULT_PROJECT_ID, name: 'Default Project', createdAt: new Date().toISOString() }
+]);
+
+const safeParseStoredArray = (key) => {
+  if (typeof window === 'undefined' || !window.localStorage) return null;
+  const raw = window.localStorage.getItem(key);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+    console.warn(`Stored value for "${key}" is not an array, ignoring.`);
+  } catch (error) {
+    console.error(`Failed to parse localStorage item "${key}":`, error);
+  }
+  window.localStorage.removeItem(key);
+  return null;
+};
+
+const getStoredArrayWithBackup = (primaryKey, backupKey, fallbackFactory) => {
+  const primary = safeParseStoredArray(primaryKey);
+  if (primary !== null) return primary;
+  if (backupKey) {
+    const backup = safeParseStoredArray(backupKey);
+    if (backup !== null) return backup;
+  }
+  return fallbackFactory();
+};
+
+const getLocalStorageSnapshot = () => {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return {
+      projects: createDefaultProjectList(),
+      tasks: [],
+      history: [],
+      activeProjectId: DEFAULT_PROJECT_ID,
+    };
+  }
+
+  const projects = getStoredArrayWithBackup(
+    'coding-todo-projects',
+    'coding-todo-backup-projects',
+    createDefaultProjectList
+  );
+
+  const rawTasks = getStoredArrayWithBackup(
+    'coding-todo-tasks',
+    'coding-todo-backup-tasks',
+    () => []
+  );
+
+  const rawHistory = getStoredArrayWithBackup(
+    'coding-todo-history',
+    'coding-todo-backup-history',
+    () => []
+  );
+
+  const activeProjectId = window.localStorage.getItem('coding-todo-active-project') || DEFAULT_PROJECT_ID;
+
+  return {
+    projects,
+    tasks: rawTasks.map(hydrateTask),
+    history: rawHistory.map(hydrateHistoryItem),
+    activeProjectId,
+  };
+};
+
 function App() {
   const [user, setUser] = useState(null);
   const [showAuth, setShowAuth] = useState(false);
@@ -63,17 +133,11 @@ function App() {
 
   // Load data from localStorage (fallback)
   const loadFromLocalStorage = useCallback(() => {
-    const savedProjects = localStorage.getItem('coding-todo-projects');
-    const savedTasks = localStorage.getItem('coding-todo-tasks');
-    const savedHistory = localStorage.getItem('coding-todo-history');
-    const savedActiveProject = localStorage.getItem('coding-todo-active-project');
-
-    setProjects(savedProjects ? JSON.parse(savedProjects) : [
-      { id: DEFAULT_PROJECT_ID, name: 'Default Project', createdAt: new Date().toISOString() }
-    ]);
-    setTasks(savedTasks ? JSON.parse(savedTasks).map(hydrateTask) : []);
-    setHistory(savedHistory ? JSON.parse(savedHistory).map(hydrateHistoryItem) : []);
-    setActiveProjectId(savedActiveProject || DEFAULT_PROJECT_ID);
+    const snapshot = getLocalStorageSnapshot();
+    setProjects(snapshot.projects);
+    setTasks(snapshot.tasks);
+    setHistory(snapshot.history);
+    setActiveProjectId(snapshot.activeProjectId);
   }, []);
 
   // Load data from Supabase
@@ -164,28 +228,82 @@ function App() {
       return;
     }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    let finished = false;
+    let timeoutId;
+    const finishLoading = (callback) => {
+      callback?.();
+      if (!finished) {
+        setLoading(false);
+        finished = true;
+      }
+    };
+
+    const fallbackToLocal = () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      loadFromLocalStorage();
+      finishLoading(() => {
+        setShowAuth(false);
+      });
+    };
+
+    timeoutId = setTimeout(() => {
+      console.warn('Supabase 认证超时，切换到本地模式');
+      fallbackToLocal();
+    }, SUPABASE_AUTH_TIMEOUT);
+
+    const checkAuthAndRedirect = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        clearTimeout(timeoutId);
+        setUser(session?.user ?? null);
+
+        if (session?.user) {
+          await loadFromSupabase(session.user.id);
+          finishLoading(() => {
+            setShowAuth(false);
+          });
+        } else {
+          finishLoading(() => {
+            setShowAuth(true);
+          });
+        }
+      } catch (error) {
+        console.error('检查认证状态失败:', error);
+        clearTimeout(timeoutId);
+        fallbackToLocal();
+      }
+    };
+
+    checkAuthAndRedirect();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) {
-        loadFromSupabase(session.user.id);
+        await loadFromSupabase(session.user.id);
+        setShowAuth(false);
       } else {
         loadFromLocalStorage();
-      }
-      setLoading(false);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        loadFromSupabase(session.user.id);
+        setShowAuth(true);
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      finished = true;
+      clearTimeout(timeoutId);
+      subscription.unsubscribe();
+    };
   }, [loadFromLocalStorage, loadFromSupabase]);
 
-  // Sync to localStorage (fallback)
+  // Sync to localStorage (fallback) and auto-save
   useEffect(() => {
+    // 保存到 localStorage 作为备份
+    localStorage.setItem('coding-todo-backup-projects', JSON.stringify(projects));
+    localStorage.setItem('coding-todo-backup-tasks', JSON.stringify(tasks));
+    localStorage.setItem('coding-todo-backup-history', JSON.stringify(history));
+
+    // 如果没有登录，也保存到主要 localStorage
     if (!user) {
       localStorage.setItem('coding-todo-projects', JSON.stringify(projects));
       localStorage.setItem('coding-todo-tasks', JSON.stringify(tasks));
@@ -419,6 +537,23 @@ function App() {
   }
 
   // ... (existing code)
+
+  // 如果需要登录，先显示登录界面
+  if (showAuth) {
+    return (
+      <div className="relative min-h-screen bg-white dark:bg-[#020617] text-slate-900 dark:text-slate-50 overflow-hidden selection:bg-indigo-200 dark:selection:bg-indigo-500/30 transition-colors duration-300">
+        <div className="absolute inset-0 bg-gradient-to-b from-slate-50 to-white dark:bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] dark:from-slate-900 dark:via-[#020617] dark:to-[#020617]" />
+        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] dark:opacity-20 brightness-100 contrast-150 mix-blend-overlay"></div>
+        <div className="relative z-10 flex items-center justify-center min-h-screen p-4">
+          <AuthModal
+            onAuth={handleAuth}
+            onClose={() => {}} // 防止用户关闭登录界面
+            forceShow={true} // 强制显示登录界面
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative min-h-screen bg-white dark:bg-[#020617] text-slate-900 dark:text-slate-50 overflow-hidden selection:bg-indigo-200 dark:selection:bg-indigo-500/30 transition-colors duration-300">

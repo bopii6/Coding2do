@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion as Motion } from 'framer-motion';
 import { LogIn, UserPlus, Mail, Lock, Loader2 } from 'lucide-react';
 
-function AuthModal({ onAuth, onClose }) {
+function AuthModal({ onAuth, onClose, forceShow = false }) {
     const [isLogin, setIsLogin] = useState(true);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -112,12 +112,14 @@ function AuthModal({ onAuth, onClose }) {
                     </button>
                 </div>
 
-                <button
-                    onClick={onClose}
-                    className="mt-4 w-full text-sm text-slate-500 hover:text-slate-300 transition-colors"
-                >
-                    Continue without account
-                </button>
+                {!forceShow && (
+                    <button
+                        onClick={onClose}
+                        className="mt-4 w-full text-sm text-slate-500 hover:text-slate-300 transition-colors"
+                    >
+                        Continue without account
+                    </button>
+                )}
             </Motion.div>
         </div>
     );
