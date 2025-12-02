@@ -120,6 +120,39 @@ const getLocalStorageSnapshot = () => {
   };
 };
 
+const PENDING_PROJECTS_KEY = 'coding-todo-pending-projects';
+const PENDING_TASKS_KEY = 'coding-todo-pending-tasks';
+
+const readArrayFromStorage = (key) => {
+  if (typeof window === 'undefined' || !window.localStorage) return [];
+  const raw = window.localStorage.getItem(key);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.error(`Failed to parse storage array for ${key}:`, error);
+    window.localStorage.removeItem(key);
+    return [];
+  }
+};
+
+const appendToStorageArray = (key, value) => {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  const existing = readArrayFromStorage(key);
+  window.localStorage.setItem(key, JSON.stringify([...existing, value]));
+};
+
+const clearStorageKey = (key) => {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  window.localStorage.removeItem(key);
+};
+
+const getPendingProjects = () => readArrayFromStorage(PENDING_PROJECTS_KEY);
+const getPendingTasks = () => readArrayFromStorage(PENDING_TASKS_KEY);
+const queuePendingProject = (project) => appendToStorageArray(PENDING_PROJECTS_KEY, project);
+const queuePendingTask = (task) => appendToStorageArray(PENDING_TASKS_KEY, task);
+
 function App() {
   const [user, setUser] = useState(null);
   const [showAuth, setShowAuth] = useState(false);
@@ -132,7 +165,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [priorityFilter, setPriorityFilter] = useState('all'); // 'all', 'now', 'later'
   const playAudioCue = useAudioCue();
-  const { toasts, success, error, removeToast } = useToast();
+  const { toasts, success, error, warning, removeToast } = useToast();
 
   // Load data from localStorage (fallback)
   const loadFromLocalStorage = useCallback(() => {
@@ -381,6 +414,56 @@ function App() {
     localStorage.setItem('coding-todo-active-project', activeProjectId);
   }, [activeProjectId]);
 
+  useEffect(() => {
+    if (!user || !supabase || !isSupabaseConfigured()) return;
+    if (typeof window === 'undefined' || !window.localStorage) return;
+
+    const pendingProjects = getPendingProjects();
+    const pendingTasks = getPendingTasks();
+    if (!pendingProjects.length && !pendingTasks.length) return;
+
+    const syncPending = async () => {
+      try {
+        if (pendingProjects.length) {
+          const projectPayload = pendingProjects.map((project) => ({
+            id: project.id,
+            name: project.name,
+            user_id: user.id,
+            created_at: project.createdAt,
+          }));
+          const { error: projectError } = await supabase
+            .from('projects')
+            .upsert(projectPayload, { onConflict: 'id' });
+          if (projectError) throw projectError;
+          clearStorageKey(PENDING_PROJECTS_KEY);
+        }
+
+        if (pendingTasks.length) {
+          const taskPayload = pendingTasks.map((task) => ({
+            id: task.id,
+            text: task.text,
+            project_id: task.projectId,
+            user_id: user.id,
+            created_at: task.createdAt,
+            priority_weight: priorityToWeight(task.priority),
+          }));
+          const { error: taskError } = await supabase
+            .from('tasks')
+            .upsert(taskPayload, { onConflict: 'id' });
+          if (taskError) throw taskError;
+          clearStorageKey(PENDING_TASKS_KEY);
+        }
+
+        await loadFromSupabase(user.id);
+        success('离线数据已同步');
+      } catch (err) {
+        console.error('同步离线数据失败:', err);
+      }
+    };
+
+    syncPending();
+  }, [user, loadFromSupabase, success]);
+
   // Auth handlers
   const handleAuth = async (email, password, isLogin) => {
     if (!isSupabaseConfigured()) {
@@ -437,55 +520,63 @@ function App() {
     setActiveProjectId(newProject.id);
     playAudioCue('add');
 
-    // 如果已登录，同步到 Supabase
-    if (user && isSupabaseConfigured()) {
-      try {
-        console.log('[addProject] Syncing to Supabase...');
+    if (!isSupabaseConfigured()) {
+      warning('Supabase 未配置，项目仅保存在本地');
+      return;
+    }
 
-        // 添加超时处理（10秒）
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('数据库操作超时')), 10000)
-        );
+    if (!user) {
+      queuePendingProject(newProject);
+      warning('当前未登录，项目已暂存，登录后会自动同步');
+      return;
+    }
 
-        const insertPromise = supabase.from('projects').insert({
-          id: newProject.id,
-          name: newProject.name,
-          user_id: user.id
-        }).select().single();
+    try {
+      console.log('[addProject] Syncing to Supabase...');
 
-        const { data: insertedData, error: insertError } = await Promise.race([
-          insertPromise,
-          timeoutPromise
-        ]);
+      // 添加超时处理（10秒）
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('数据库操作超时')), 10000)
+      );
 
-        if (insertError) {
-          console.error('[addProject] Insert error:', insertError);
-          // 如果插入失败，回滚本地状态
-          setProjects(projects);
-          setActiveProjectId(activeProjectId);
-          error(`创建项目失败: ${insertError.message || '未知错误'}`);
-          return;
-        }
+      const insertPromise = supabase.from('projects').insert({
+        id: newProject.id,
+        name: newProject.name,
+        user_id: user.id
+      }).select().single();
 
-        // 验证数据是否真的插入成功
-        if (!insertedData || insertedData.id !== newProject.id) {
-          console.error('[addProject] Verification failed - data mismatch:', insertedData);
-          setProjects(projects);
-          setActiveProjectId(activeProjectId);
-          error('创建项目失败: 数据验证失败');
-          return;
-        }
+      const { data: insertedData, error: insertError } = await Promise.race([
+        insertPromise,
+        timeoutPromise
+      ]);
 
-        console.log('[addProject] Successfully created and verified:', insertedData);
-        success('项目已创建');
-      } catch (err) {
-        console.error('[addProject] Exception:', err);
-        // 如果发生异常，回滚本地状态
+      if (insertError) {
+        console.error('[addProject] Insert error:', insertError);
+        // 如果插入失败，回滚本地状态
         setProjects(projects);
         setActiveProjectId(activeProjectId);
-        error(`创建项目失败: ${err.message || '网络错误'}`);
+        error(`创建项目失败: ${insertError.message || '未知错误'}`);
         return;
       }
+
+      // 验证数据是否真的插入成功
+      if (!insertedData || insertedData.id !== newProject.id) {
+        console.error('[addProject] Verification failed - data mismatch:', insertedData);
+        setProjects(projects);
+        setActiveProjectId(activeProjectId);
+        error('创建项目失败: 数据验证失败');
+        return;
+      }
+
+      console.log('[addProject] Successfully created and verified:', insertedData);
+      success('项目已创建');
+    } catch (err) {
+      console.error('[addProject] Exception:', err);
+      // 如果发生异常，回滚本地状态
+      setProjects(projects);
+      setActiveProjectId(activeProjectId);
+      error(`创建项目失败: ${err.message || '网络错误'}`);
+      return;
     }
   };
 
@@ -584,54 +675,62 @@ function App() {
     setTasks([...tasks, newTask]);
     playAudioCue('add');
 
-    // 如果已登录，同步到 Supabase
-    if (user && isSupabaseConfigured()) {
-      try {
-        console.log('[addTask] Syncing to Supabase...');
+    if (!isSupabaseConfigured()) {
+      warning('Supabase 未配置，任务仅保存在本地');
+      return;
+    }
 
-        // 添加超时处理（10秒）
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('数据库操作超时')), 10000)
-        );
+    if (!user) {
+      queuePendingTask(newTask);
+      warning('当前未登录，任务已暂存，登录后会自动同步');
+      return;
+    }
 
-        const insertPromise = supabase.from('tasks').insert({
-          id: newTask.id,
-          text: newTask.text,
-          project_id: newTask.projectId,
-          user_id: user.id,
-          priority_weight: priorityToWeight(newTask.priority)
-        }).select().single();
+    try {
+      console.log('[addTask] Syncing to Supabase...');
 
-        const { data: insertedData, error: insertError } = await Promise.race([
-          insertPromise,
-          timeoutPromise
-        ]);
+      // 添加超时处理（10秒）
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('数据库操作超时')), 10000)
+      );
 
-        if (insertError) {
-          console.error('[addTask] Insert error:', insertError);
-          // 如果插入失败，回滚本地状态
-          setTasks(tasks);
-          error(`创建任务失败: ${insertError.message || '未知错误'}`);
-          return;
-        }
+      const insertPromise = supabase.from('tasks').insert({
+        id: newTask.id,
+        text: newTask.text,
+        project_id: newTask.projectId,
+        user_id: user.id,
+        priority_weight: priorityToWeight(newTask.priority)
+      }).select().single();
 
-        // 验证数据是否真的插入成功
-        if (!insertedData || insertedData.id !== newTask.id) {
-          console.error('[addTask] Verification failed - data mismatch:', insertedData);
-          setTasks(tasks);
-          error('创建任务失败: 数据验证失败');
-          return;
-        }
+      const { data: insertedData, error: insertError } = await Promise.race([
+        insertPromise,
+        timeoutPromise
+      ]);
 
-        console.log('[addTask] Successfully created and verified:', insertedData);
-        success('任务已创建');
-      } catch (err) {
-        console.error('[addTask] Exception:', err);
-        // 如果发生异常，回滚本地状态
+      if (insertError) {
+        console.error('[addTask] Insert error:', insertError);
+        // 如果插入失败，回滚本地状态
         setTasks(tasks);
-        error(`创建任务失败: ${err.message || '网络错误'}`);
+        error(`创建任务失败: ${insertError.message || '未知错误'}`);
         return;
       }
+
+      // 验证数据是否真的插入成功
+      if (!insertedData || insertedData.id !== newTask.id) {
+        console.error('[addTask] Verification failed - data mismatch:', insertedData);
+        setTasks(tasks);
+        error('创建任务失败: 数据验证失败');
+        return;
+      }
+
+      console.log('[addTask] Successfully created and verified:', insertedData);
+      success('任务已创建');
+    } catch (err) {
+      console.error('[addTask] Exception:', err);
+      // 如果发生异常，回滚本地状态
+      setTasks(tasks);
+      error(`创建任务失败: ${err.message || '网络错误'}`);
+      return;
     }
   };
 
