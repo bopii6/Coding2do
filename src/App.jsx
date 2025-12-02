@@ -261,19 +261,19 @@ function App() {
         // 先尝试从 localStorage 检查是否有保存的 session
         // 这可以加快移动端的加载速度
         // 检查 Supabase 存储的 session key（Supabase 使用特定的 key 格式）
-        const supabaseStorageKey = Object.keys(localStorage).find(key => 
+        const supabaseStorageKey = Object.keys(localStorage).find(key =>
           key.includes('supabase') && key.includes('auth-token')
         );
         const storedSession = supabaseStorageKey ? localStorage.getItem(supabaseStorageKey) : null;
-        
+
         // 等待一下，确保 Supabase 有时间恢复 session
         // 特别是在移动端或 PWA 环境中
         await new Promise(resolve => setTimeout(resolve, 500));
-        
+
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        
+
         clearTimeout(timeoutId);
-        
+
         if (sessionError) {
           console.error('获取 session 失败:', sessionError);
           // 如果有错误但之前有存储的 session，再等待一下重试
@@ -303,9 +303,9 @@ function App() {
         } else {
           // 如果没有 session，检查是否之前登录过（通过 localStorage）
           // 如果有历史记录，允许使用本地模式，不强制登录
-          const hasLocalData = localStorage.getItem('coding-todo-tasks') || 
-                               localStorage.getItem('coding-todo-backup-tasks');
-          
+          const hasLocalData = localStorage.getItem('coding-todo-tasks') ||
+            localStorage.getItem('coding-todo-backup-tasks');
+
           if (hasLocalData) {
             // 有本地数据，允许离线使用，不强制登录
             finishLoading(() => {
@@ -342,8 +342,8 @@ function App() {
           setShowAuth(true);
         } else {
           // 其他情况（如初始化），允许使用本地模式
-          const hasLocalData = localStorage.getItem('coding-todo-tasks') || 
-                               localStorage.getItem('coding-todo-backup-tasks');
+          const hasLocalData = localStorage.getItem('coding-todo-tasks') ||
+            localStorage.getItem('coding-todo-backup-tasks');
           if (!hasLocalData) {
             setShowAuth(true);
           } else {
@@ -430,6 +430,8 @@ function App() {
       createdAt: new Date().toISOString(),
     };
 
+    console.log('[addProject] Creating project:', { id: newProject.id, name: newProject.name });
+
     // 先更新本地状态（乐观更新）
     setProjects([...projects, newProject]);
     setActiveProjectId(newProject.id);
@@ -438,27 +440,50 @@ function App() {
     // 如果已登录，同步到 Supabase
     if (user && isSupabaseConfigured()) {
       try {
-        const { error: insertError } = await supabase.from('projects').insert({
+        console.log('[addProject] Syncing to Supabase...');
+
+        // 添加超时处理（10秒）
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('数据库操作超时')), 10000)
+        );
+
+        const insertPromise = supabase.from('projects').insert({
           id: newProject.id,
           name: newProject.name,
           user_id: user.id
-        });
+        }).select().single();
+
+        const { data: insertedData, error: insertError } = await Promise.race([
+          insertPromise,
+          timeoutPromise
+        ]);
 
         if (insertError) {
+          console.error('[addProject] Insert error:', insertError);
           // 如果插入失败，回滚本地状态
           setProjects(projects);
           setActiveProjectId(activeProjectId);
           error(`创建项目失败: ${insertError.message || '未知错误'}`);
-          console.error('Failed to add project:', insertError);
           return;
         }
+
+        // 验证数据是否真的插入成功
+        if (!insertedData || insertedData.id !== newProject.id) {
+          console.error('[addProject] Verification failed - data mismatch:', insertedData);
+          setProjects(projects);
+          setActiveProjectId(activeProjectId);
+          error('创建项目失败: 数据验证失败');
+          return;
+        }
+
+        console.log('[addProject] Successfully created and verified:', insertedData);
         success('项目已创建');
       } catch (err) {
+        console.error('[addProject] Exception:', err);
         // 如果发生异常，回滚本地状态
         setProjects(projects);
         setActiveProjectId(activeProjectId);
         error(`创建项目失败: ${err.message || '网络错误'}`);
-        console.error('Failed to add project:', err);
         return;
       }
     }
@@ -516,7 +541,7 @@ function App() {
 
   const renameProject = async (id, newName) => {
     const originalProjects = projects;
-    
+
     // 先更新本地状态（乐观更新）
     setProjects(projects.map(p => p.id === id ? { ...p, name: newName } : p));
 
@@ -553,6 +578,8 @@ function App() {
       priority: normalizePriority(priority),
     };
 
+    console.log('[addTask] Creating task:', { id: newTask.id, text: newTask.text, priority: newTask.priority });
+
     // 先更新本地状态（乐观更新）
     setTasks([...tasks, newTask]);
     playAudioCue('add');
@@ -560,27 +587,49 @@ function App() {
     // 如果已登录，同步到 Supabase
     if (user && isSupabaseConfigured()) {
       try {
-        const { error: insertError } = await supabase.from('tasks').insert({
+        console.log('[addTask] Syncing to Supabase...');
+
+        // 添加超时处理（10秒）
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('数据库操作超时')), 10000)
+        );
+
+        const insertPromise = supabase.from('tasks').insert({
           id: newTask.id,
           text: newTask.text,
           project_id: newTask.projectId,
           user_id: user.id,
           priority_weight: priorityToWeight(newTask.priority)
-        });
+        }).select().single();
+
+        const { data: insertedData, error: insertError } = await Promise.race([
+          insertPromise,
+          timeoutPromise
+        ]);
 
         if (insertError) {
+          console.error('[addTask] Insert error:', insertError);
           // 如果插入失败，回滚本地状态
           setTasks(tasks);
           error(`创建任务失败: ${insertError.message || '未知错误'}`);
-          console.error('Failed to add task:', insertError);
           return;
         }
+
+        // 验证数据是否真的插入成功
+        if (!insertedData || insertedData.id !== newTask.id) {
+          console.error('[addTask] Verification failed - data mismatch:', insertedData);
+          setTasks(tasks);
+          error('创建任务失败: 数据验证失败');
+          return;
+        }
+
+        console.log('[addTask] Successfully created and verified:', insertedData);
         success('任务已创建');
       } catch (err) {
+        console.error('[addTask] Exception:', err);
         // 如果发生异常，回滚本地状态
         setTasks(tasks);
         error(`创建任务失败: ${err.message || '网络错误'}`);
-        console.error('Failed to add task:', err);
         return;
       }
     }
@@ -647,7 +696,7 @@ function App() {
 
   const editTask = async (id, newText) => {
     const originalTasks = tasks;
-    
+
     // 先更新本地状态（乐观更新）
     setTasks(tasks.map(t => t.id === id ? { ...t, text: newText } : t));
 
@@ -675,7 +724,7 @@ function App() {
 
   const deleteTask = async (id) => {
     const originalTasks = tasks;
-    
+
     // 先更新本地状态（乐观更新）
     setTasks(tasks.filter(t => t.id !== id));
     playAudioCue('delete');
@@ -705,7 +754,7 @@ function App() {
 
   const deleteHistoryItem = async (id) => {
     const originalHistory = history;
-    
+
     // 先更新本地状态（乐观更新）
     setHistory(history.filter(t => t.id !== id));
     playAudioCue('delete');
@@ -794,7 +843,7 @@ function App() {
   const changeTaskPriority = async (id, direction) => {
     let updatedPriority = null;
     const originalTasks = tasks;
-    
+
     // 先更新本地状态（乐观更新）
     setTasks(prev => prev.map(task => {
       if (task.id !== id) return task;
@@ -829,7 +878,7 @@ function App() {
 
   const setTaskPriority = async (id, newPriority) => {
     const originalTasks = tasks;
-    
+
     // 先更新本地状态（乐观更新）
     setTasks(prev => prev.map(task => {
       if (task.id !== id) return task;
@@ -895,9 +944,9 @@ function App() {
   // 如果需要登录，先显示登录界面
   // 但在移动端，如果有本地数据，允许先使用本地模式
   if (showAuth) {
-    const hasLocalData = localStorage.getItem('coding-todo-tasks') || 
-                         localStorage.getItem('coding-todo-backup-tasks');
-    
+    const hasLocalData = localStorage.getItem('coding-todo-tasks') ||
+      localStorage.getItem('coding-todo-backup-tasks');
+
     return (
       <div className="relative min-h-screen bg-white dark:bg-[#020617] text-slate-900 dark:text-slate-50 overflow-hidden selection:bg-indigo-200 dark:selection:bg-indigo-500/30 transition-colors duration-300">
         <div className="absolute inset-0 bg-gradient-to-b from-slate-50 to-white dark:bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] dark:from-slate-900 dark:via-[#020617] dark:to-[#020617]" />
