@@ -5,25 +5,26 @@ import HistoryView from './components/HistoryView';
 import ProjectSidebar from './components/ProjectSidebar';
 import AuthModal from './components/AuthModal';
 import ThemeToggle from './components/ThemeToggle';
+import PriorityFilter from './components/PriorityFilter';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import useAudioCue from './lib/useAudioCue';
 import { LogOut, User, Menu, X } from 'lucide-react';
 
 const DEFAULT_PROJECT_ID = 'default';
 const PRIORITY_LEVELS = ['later', 'now'];
-const DEFAULT_PRIORITY = 'now';
+const DEFAULT_PRIORITY = 'later';
 
 const normalizePriority = (value) => (PRIORITY_LEVELS.includes(value) ? value : DEFAULT_PRIORITY);
 const priorityToWeight = (priority) => {
   const normalized = normalizePriority(priority);
   if (normalized === 'now') return 1;
   if (normalized === 'later') return -1;
-  return 1; // default to 'now'
+  return -1; // default to 'later'
 };
 const weightToPriority = (weight) => {
   if (weight > 0) return 'now';
   if (weight < 0) return 'later';
-  return 'now'; // default to 'now'
+  return 'later'; // default to 'later'
 };
 const shiftPriority = (current, direction) => {
   const index = PRIORITY_LEVELS.indexOf(normalizePriority(current));
@@ -57,6 +58,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [priorityFilter, setPriorityFilter] = useState('all'); // 'all', 'now', 'later'
   const playAudioCue = useAudioCue();
 
   // Load data from localStorage (fallback)
@@ -397,7 +399,14 @@ function App() {
     playAudioCue('copy');
   };
 
-  const activeTasks = sortByPriority(tasks.filter(t => t.projectId === activeProjectId));
+
+  const activeTasks = sortByPriority(
+    tasks.filter(t => {
+      if (t.projectId !== activeProjectId) return false;
+      if (priorityFilter === 'all') return true;
+      return t.priority === priorityFilter;
+    })
+  );
   const activeHistory = sortByPriority(history.filter(t => t.projectId === activeProjectId));
   const activeProjectName = projects.find(p => p.id === activeProjectId)?.name || 'Project';
 
@@ -571,6 +580,11 @@ function App() {
               </header>
 
               <TaskInput onAdd={addTask} />
+
+              <PriorityFilter
+                activeFilter={priorityFilter}
+                onFilterChange={setPriorityFilter}
+              />
 
               <TaskList
                 tasks={activeTasks}

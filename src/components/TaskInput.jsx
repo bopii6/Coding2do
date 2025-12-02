@@ -9,14 +9,14 @@ const PRIORITY_OPTIONS = [
 
 function TaskInput({ onAdd }) {
     const [text, setText] = useState('');
-    const [priority, setPriority] = useState('now');
+    const [priority, setPriority] = useState('later');
 
     const handleSubmit = (e) => {
         e.preventDefault();
         if (text.trim()) {
             onAdd(text, priority);
             setText('');
-            setPriority('now');
+            setPriority('later');
         }
     };
 
