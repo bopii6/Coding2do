@@ -17,11 +17,13 @@ const normalizePriority = (value) => (PRIORITY_LEVELS.includes(value) ? value : 
 const priorityToWeight = (priority) => {
   const normalized = normalizePriority(priority);
   if (normalized === 'now') return 1;
-  return 0;
+  if (normalized === 'later') return -1;
+  return 1; // default to 'now'
 };
 const weightToPriority = (weight) => {
   if (weight > 0) return 'now';
-  return 'later';
+  if (weight < 0) return 'later';
+  return 'now'; // default to 'now'
 };
 const shiftPriority = (current, direction) => {
   const index = PRIORITY_LEVELS.indexOf(normalizePriority(current));
