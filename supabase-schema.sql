@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     text TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    priority_weight INTEGER DEFAULT 0
 );
 
 -- Create history table
@@ -22,7 +23,8 @@ CREATE TABLE IF NOT EXISTS history (
     text TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     completed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    priority_weight INTEGER DEFAULT 0
 );
 
 -- Create indexes for better query performance

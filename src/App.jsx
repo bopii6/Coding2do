@@ -6,6 +6,7 @@ import ProjectSidebar from './components/ProjectSidebar';
 import AuthModal from './components/AuthModal';
 import ThemeToggle from './components/ThemeToggle';
 import PriorityFilter from './components/PriorityFilter';
+import { ToastContainer, useToast } from './components/Toast';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import useAudioCue from './lib/useAudioCue';
 import { LogOut, User, Menu, X } from 'lucide-react';
@@ -130,6 +131,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [priorityFilter, setPriorityFilter] = useState('all'); // 'all', 'now', 'later'
   const playAudioCue = useAudioCue();
+  const { toasts, success, error, removeToast } = useToast();
 
   // Load data from localStorage (fallback)
   const loadFromLocalStorage = useCallback(() => {
@@ -350,41 +352,117 @@ function App() {
       createdAt: new Date().toISOString(),
     };
 
-    if (user && isSupabaseConfigured()) {
-      await supabase.from('projects').insert({
-        id: newProject.id,
-        name: newProject.name,
-        user_id: user.id
-      });
-    }
-
+    // 先更新本地状态（乐观更新）
     setProjects([...projects, newProject]);
     setActiveProjectId(newProject.id);
     playAudioCue('add');
+
+    // 如果已登录，同步到 Supabase
+    if (user && isSupabaseConfigured()) {
+      try {
+        const { error: insertError } = await supabase.from('projects').insert({
+          id: newProject.id,
+          name: newProject.name,
+          user_id: user.id
+        });
+
+        if (insertError) {
+          // 如果插入失败，回滚本地状态
+          setProjects(projects);
+          setActiveProjectId(activeProjectId);
+          error(`创建项目失败: ${insertError.message || '未知错误'}`);
+          console.error('Failed to add project:', insertError);
+          return;
+        }
+        success('项目已创建');
+      } catch (err) {
+        // 如果发生异常，回滚本地状态
+        setProjects(projects);
+        setActiveProjectId(activeProjectId);
+        error(`创建项目失败: ${err.message || '网络错误'}`);
+        console.error('Failed to add project:', err);
+        return;
+      }
+    }
   };
 
   const deleteProject = async (id) => {
     if (projects.length <= 1) return;
 
-    if (user && isSupabaseConfigured()) {
-      await supabase.from('projects').delete().eq('id', id);
-    }
+    const originalProjects = projects;
+    const originalTasks = tasks;
+    const originalHistory = history;
+    const originalActiveProjectId = activeProjectId;
 
-    setProjects(projects.filter(p => p.id !== id));
-    setTasks(tasks.filter(t => t.projectId !== id));
-    setHistory(history.filter(t => t.projectId !== id));
+    // 先更新本地状态（乐观更新）
+    const updatedProjects = projects.filter(p => p.id !== id);
+    const updatedTasks = tasks.filter(t => t.projectId !== id);
+    const updatedHistory = history.filter(t => t.projectId !== id);
+    setProjects(updatedProjects);
+    setTasks(updatedTasks);
+    setHistory(updatedHistory);
 
     if (activeProjectId === id) {
-      setActiveProjectId(projects[0].id);
+      setActiveProjectId(updatedProjects[0]?.id || DEFAULT_PROJECT_ID);
     }
     playAudioCue('delete');
+
+    // 如果已登录，同步到 Supabase
+    if (user && isSupabaseConfigured()) {
+      try {
+        const { error: deleteError } = await supabase.from('projects').delete().eq('id', id);
+
+        if (deleteError) {
+          // 如果删除失败，回滚本地状态
+          setProjects(originalProjects);
+          setTasks(originalTasks);
+          setHistory(originalHistory);
+          setActiveProjectId(originalActiveProjectId);
+          error(`删除项目失败: ${deleteError.message || '未知错误'}`);
+          console.error('Failed to delete project:', deleteError);
+          return;
+        }
+        success('项目已删除');
+      } catch (err) {
+        // 如果发生异常，回滚本地状态
+        setProjects(originalProjects);
+        setTasks(originalTasks);
+        setHistory(originalHistory);
+        setActiveProjectId(originalActiveProjectId);
+        error(`删除项目失败: ${err.message || '网络错误'}`);
+        console.error('Failed to delete project:', err);
+        return;
+      }
+    }
   };
 
   const renameProject = async (id, newName) => {
-    if (user && isSupabaseConfigured()) {
-      await supabase.from('projects').update({ name: newName }).eq('id', id);
-    }
+    const originalProjects = projects;
+    
+    // 先更新本地状态（乐观更新）
     setProjects(projects.map(p => p.id === id ? { ...p, name: newName } : p));
+
+    // 如果已登录，同步到 Supabase
+    if (user && isSupabaseConfigured()) {
+      try {
+        const { error: updateError } = await supabase.from('projects').update({ name: newName }).eq('id', id);
+
+        if (updateError) {
+          // 如果更新失败，回滚本地状态
+          setProjects(originalProjects);
+          error(`重命名项目失败: ${updateError.message || '未知错误'}`);
+          console.error('Failed to rename project:', updateError);
+          return;
+        }
+        success('项目已重命名');
+      } catch (err) {
+        // 如果发生异常，回滚本地状态
+        setProjects(originalProjects);
+        error(`重命名项目失败: ${err.message || '网络错误'}`);
+        console.error('Failed to rename project:', err);
+        return;
+      }
+    }
   };
 
   // Task actions
@@ -397,18 +475,37 @@ function App() {
       priority: normalizePriority(priority),
     };
 
-    if (user && isSupabaseConfigured()) {
-      await supabase.from('tasks').insert({
-        id: newTask.id,
-        text: newTask.text,
-        project_id: newTask.projectId,
-        user_id: user.id,
-        priority_weight: priorityToWeight(newTask.priority)
-      });
-    }
-
+    // 先更新本地状态（乐观更新）
     setTasks([...tasks, newTask]);
     playAudioCue('add');
+
+    // 如果已登录，同步到 Supabase
+    if (user && isSupabaseConfigured()) {
+      try {
+        const { error: insertError } = await supabase.from('tasks').insert({
+          id: newTask.id,
+          text: newTask.text,
+          project_id: newTask.projectId,
+          user_id: user.id,
+          priority_weight: priorityToWeight(newTask.priority)
+        });
+
+        if (insertError) {
+          // 如果插入失败，回滚本地状态
+          setTasks(tasks);
+          error(`创建任务失败: ${insertError.message || '未知错误'}`);
+          console.error('Failed to add task:', insertError);
+          return;
+        }
+        success('任务已创建');
+      } catch (err) {
+        // 如果发生异常，回滚本地状态
+        setTasks(tasks);
+        error(`创建任务失败: ${err.message || '网络错误'}`);
+        console.error('Failed to add task:', err);
+        return;
+      }
+    }
   };
 
   const completeTask = async (id) => {
@@ -417,46 +514,145 @@ function App() {
 
     const historyItem = { ...taskToComplete, completedAt: new Date().toISOString() };
 
-    if (user && isSupabaseConfigured()) {
-      await Promise.all([
-        supabase.from('tasks').delete().eq('id', id),
-        supabase.from('history').insert({
-          id: historyItem.id,
-          text: historyItem.text,
-          project_id: historyItem.projectId,
-          completed_at: historyItem.completedAt,
-          user_id: user.id,
-          priority_weight: priorityToWeight(historyItem.priority)
-        })
-      ]);
-    }
-
-    setTasks(tasks.filter(t => t.id !== id));
-    setHistory([historyItem, ...history]);
+    // 先更新本地状态（乐观更新）
+    const updatedTasks = tasks.filter(t => t.id !== id);
+    const updatedHistory = [historyItem, ...history];
+    setTasks(updatedTasks);
+    setHistory(updatedHistory);
     playAudioCue('complete');
+
+    // 如果已登录，同步到 Supabase
+    if (user && isSupabaseConfigured()) {
+      try {
+        const [deleteRes, insertRes] = await Promise.all([
+          supabase.from('tasks').delete().eq('id', id),
+          supabase.from('history').insert({
+            id: historyItem.id,
+            text: historyItem.text,
+            project_id: historyItem.projectId,
+            completed_at: historyItem.completedAt,
+            user_id: user.id,
+            priority_weight: priorityToWeight(historyItem.priority)
+          })
+        ]);
+
+        // 检查是否有错误
+        if (deleteRes.error) {
+          // 回滚本地状态
+          setTasks(tasks);
+          setHistory(history);
+          error(`完成任务失败: ${deleteRes.error.message || '删除任务失败'}`);
+          console.error('Failed to delete task:', deleteRes.error);
+          return;
+        }
+
+        if (insertRes.error) {
+          // 回滚本地状态
+          setTasks(tasks);
+          setHistory(history);
+          error(`完成任务失败: ${insertRes.error.message || '保存历史记录失败'}`);
+          console.error('Failed to insert history:', insertRes.error);
+          return;
+        }
+
+        success('任务已完成');
+      } catch (err) {
+        // 如果发生异常，回滚本地状态
+        setTasks(tasks);
+        setHistory(history);
+        error(`完成任务失败: ${err.message || '网络错误'}`);
+        console.error('Failed to complete task:', err);
+        return;
+      }
+    }
   };
 
   const editTask = async (id, newText) => {
-    if (user && isSupabaseConfigured()) {
-      await supabase.from('tasks').update({ text: newText }).eq('id', id);
-    }
+    const originalTasks = tasks;
+    
+    // 先更新本地状态（乐观更新）
     setTasks(tasks.map(t => t.id === id ? { ...t, text: newText } : t));
+
+    // 如果已登录，同步到 Supabase
+    if (user && isSupabaseConfigured()) {
+      try {
+        const { error: updateError } = await supabase.from('tasks').update({ text: newText }).eq('id', id);
+
+        if (updateError) {
+          // 如果更新失败，回滚本地状态
+          setTasks(originalTasks);
+          error(`编辑任务失败: ${updateError.message || '未知错误'}`);
+          console.error('Failed to edit task:', updateError);
+          return;
+        }
+      } catch (err) {
+        // 如果发生异常，回滚本地状态
+        setTasks(originalTasks);
+        error(`编辑任务失败: ${err.message || '网络错误'}`);
+        console.error('Failed to edit task:', err);
+        return;
+      }
+    }
   };
 
   const deleteTask = async (id) => {
-    if (user && isSupabaseConfigured()) {
-      await supabase.from('tasks').delete().eq('id', id);
-    }
+    const originalTasks = tasks;
+    
+    // 先更新本地状态（乐观更新）
     setTasks(tasks.filter(t => t.id !== id));
     playAudioCue('delete');
+
+    // 如果已登录，同步到 Supabase
+    if (user && isSupabaseConfigured()) {
+      try {
+        const { error: deleteError } = await supabase.from('tasks').delete().eq('id', id);
+
+        if (deleteError) {
+          // 如果删除失败，回滚本地状态
+          setTasks(originalTasks);
+          error(`删除任务失败: ${deleteError.message || '未知错误'}`);
+          console.error('Failed to delete task:', deleteError);
+          return;
+        }
+        success('任务已删除');
+      } catch (err) {
+        // 如果发生异常，回滚本地状态
+        setTasks(originalTasks);
+        error(`删除任务失败: ${err.message || '网络错误'}`);
+        console.error('Failed to delete task:', err);
+        return;
+      }
+    }
   };
 
   const deleteHistoryItem = async (id) => {
-    if (user && isSupabaseConfigured()) {
-      await supabase.from('history').delete().eq('id', id);
-    }
+    const originalHistory = history;
+    
+    // 先更新本地状态（乐观更新）
     setHistory(history.filter(t => t.id !== id));
     playAudioCue('delete');
+
+    // 如果已登录，同步到 Supabase
+    if (user && isSupabaseConfigured()) {
+      try {
+        const { error: deleteError } = await supabase.from('history').delete().eq('id', id);
+
+        if (deleteError) {
+          // 如果删除失败，回滚本地状态
+          setHistory(originalHistory);
+          error(`删除历史记录失败: ${deleteError.message || '未知错误'}`);
+          console.error('Failed to delete history item:', deleteError);
+          return;
+        }
+        success('历史记录已删除');
+      } catch (err) {
+        // 如果发生异常，回滚本地状态
+        setHistory(originalHistory);
+        error(`删除历史记录失败: ${err.message || '网络错误'}`);
+        console.error('Failed to delete history item:', err);
+        return;
+      }
+    }
   };
 
   const restoreTask = async (id) => {
@@ -464,27 +660,64 @@ function App() {
     if (!taskToRestore) return;
 
     const { completedAt: _completedAt, ...rest } = taskToRestore;
+    const originalHistory = history;
+    const originalTasks = tasks;
 
-    if (user && isSupabaseConfigured()) {
-      await Promise.all([
-        supabase.from('history').delete().eq('id', id),
-        supabase.from('tasks').insert({
-          id: rest.id,
-          text: rest.text,
-          project_id: rest.projectId,
-          user_id: user.id,
-          priority_weight: priorityToWeight(rest.priority)
-        })
-      ]);
-    }
-
+    // 先更新本地状态（乐观更新）
     setHistory(history.filter(t => t.id !== id));
     setTasks([rest, ...tasks]);
     playAudioCue('restore');
+
+    // 如果已登录，同步到 Supabase
+    if (user && isSupabaseConfigured()) {
+      try {
+        const [deleteRes, insertRes] = await Promise.all([
+          supabase.from('history').delete().eq('id', id),
+          supabase.from('tasks').insert({
+            id: rest.id,
+            text: rest.text,
+            project_id: rest.projectId,
+            user_id: user.id,
+            priority_weight: priorityToWeight(rest.priority)
+          })
+        ]);
+
+        // 检查是否有错误
+        if (deleteRes.error) {
+          // 回滚本地状态
+          setHistory(originalHistory);
+          setTasks(originalTasks);
+          error(`恢复任务失败: ${deleteRes.error.message || '删除历史记录失败'}`);
+          console.error('Failed to delete history:', deleteRes.error);
+          return;
+        }
+
+        if (insertRes.error) {
+          // 回滚本地状态
+          setHistory(originalHistory);
+          setTasks(originalTasks);
+          error(`恢复任务失败: ${insertRes.error.message || '创建任务失败'}`);
+          console.error('Failed to insert task:', insertRes.error);
+          return;
+        }
+
+        success('任务已恢复');
+      } catch (err) {
+        // 如果发生异常，回滚本地状态
+        setHistory(originalHistory);
+        setTasks(originalTasks);
+        error(`恢复任务失败: ${err.message || '网络错误'}`);
+        console.error('Failed to restore task:', err);
+        return;
+      }
+    }
   };
 
   const changeTaskPriority = async (id, direction) => {
     let updatedPriority = null;
+    const originalTasks = tasks;
+    
+    // 先更新本地状态（乐观更新）
     setTasks(prev => prev.map(task => {
       if (task.id !== id) return task;
       const nextPriority = shiftPriority(task.priority, direction);
@@ -494,12 +727,32 @@ function App() {
 
     playAudioCue(direction === 'up' ? 'add' : 'delete');
 
+    // 如果已登录，同步到 Supabase
     if (updatedPriority !== null && user && isSupabaseConfigured()) {
-      await supabase.from('tasks').update({ priority_weight: priorityToWeight(updatedPriority) }).eq('id', id);
+      try {
+        const { error: updateError } = await supabase.from('tasks').update({ priority_weight: priorityToWeight(updatedPriority) }).eq('id', id);
+
+        if (updateError) {
+          // 如果更新失败，回滚本地状态
+          setTasks(originalTasks);
+          error(`更新优先级失败: ${updateError.message || '未知错误'}`);
+          console.error('Failed to update priority:', updateError);
+          return;
+        }
+      } catch (err) {
+        // 如果发生异常，回滚本地状态
+        setTasks(originalTasks);
+        error(`更新优先级失败: ${err.message || '网络错误'}`);
+        console.error('Failed to update priority:', err);
+        return;
+      }
     }
   };
 
   const setTaskPriority = async (id, newPriority) => {
+    const originalTasks = tasks;
+    
+    // 先更新本地状态（乐观更新）
     setTasks(prev => prev.map(task => {
       if (task.id !== id) return task;
       return { ...task, priority: newPriority };
@@ -507,14 +760,37 @@ function App() {
 
     playAudioCue('add');
 
+    // 如果已登录，同步到 Supabase
     if (user && isSupabaseConfigured()) {
-      await supabase.from('tasks').update({ priority_weight: priorityToWeight(newPriority) }).eq('id', id);
+      try {
+        const { error: updateError } = await supabase.from('tasks').update({ priority_weight: priorityToWeight(newPriority) }).eq('id', id);
+
+        if (updateError) {
+          // 如果更新失败，回滚本地状态
+          setTasks(originalTasks);
+          error(`更新优先级失败: ${updateError.message || '未知错误'}`);
+          console.error('Failed to set priority:', updateError);
+          return;
+        }
+      } catch (err) {
+        // 如果发生异常，回滚本地状态
+        setTasks(originalTasks);
+        error(`更新优先级失败: ${err.message || '网络错误'}`);
+        console.error('Failed to set priority:', err);
+        return;
+      }
     }
   };
 
-  const copyTask = (text) => {
-    navigator.clipboard.writeText(text);
-    playAudioCue('copy');
+  const copyTask = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      playAudioCue('copy');
+      success('已复制到剪贴板');
+    } catch (err) {
+      error('复制失败，请手动复制');
+      console.error('Failed to copy:', err);
+    }
   };
 
 
@@ -748,6 +1024,7 @@ function App() {
           />
         )}
       </div>
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   );
 }
