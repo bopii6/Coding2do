@@ -1,6 +1,7 @@
 import React from 'react';
 import { Clock, Trash2, RotateCcw } from 'lucide-react';
 import { motion as Motion, AnimatePresence } from 'framer-motion';
+import PriorityBadge from './PriorityBadge';
 
 function HistoryView({ history, onRestore, onDelete }) {
     if (history.length === 0) {
@@ -30,9 +31,12 @@ function HistoryView({ history, onRestore, onDelete }) {
                             exit={{ opacity: 0 }}
                             className="flex items-center justify-between rounded-xl bg-white/[0.02] border border-white/5 px-4 py-3 group"
                         >
-                            <span className="text-slate-400 line-through decoration-slate-600 flex-1">
-                                {item.text}
-                            </span>
+                            <div className="flex items-center gap-4 flex-1">
+                                <PriorityBadge level={item.priority} />
+                                <span className="text-slate-400 line-through decoration-slate-600 flex-1">
+                                    {item.text}
+                                </span>
+                            </div>
                             <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <button
                                     onClick={() => onRestore(item.id)}

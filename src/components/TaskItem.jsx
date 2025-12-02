@@ -1,10 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Check, Trash2, Copy, GripVertical, Edit2 } from 'lucide-react';
-import { Reorder, useDragControls } from 'framer-motion';
+import { Check, Trash2, Copy, Edit2 } from 'lucide-react';
+import { motion as Motion } from 'framer-motion';
 import confetti from 'canvas-confetti';
+import PriorityBadge from './PriorityBadge';
 
-function TaskItem({ task, onComplete, onDelete, onCopy, onEdit }) {
-    const controls = useDragControls();
+function TaskItem({
+    task,
+    onComplete,
+    onDelete,
+    onCopy,
+    onEdit,
+    onSetPriority,
+}) {
     const [isEditing, setIsEditing] = useState(false);
     const [editText, setEditText] = useState(task.text);
     const inputRef = useRef(null);
@@ -40,93 +47,95 @@ function TaskItem({ task, onComplete, onDelete, onCopy, onEdit }) {
         }
     };
 
+    const handlePriorityClick = () => {
+        // Cycle: Now <-> Later
+        const nextPriority = task.priority === 'now' ? 'later' : 'now';
+        onSetPriority(nextPriority);
+    };
+
+    const priorityColors = {
+        now: 'border-l-4 border-l-rose-500 bg-rose-50/50 dark:bg-rose-900/10',
+        later: 'border-l-4 border-l-slate-400 bg-slate-50/50 dark:bg-slate-900/20',
+    };
+
     return (
-        <Reorder.Item
-            value={task}
-            id={task.id}
-            dragListener={false}
-            dragControls={controls}
-            dragMomentum={false}
+        <Motion.div
             layout
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, x: -10 }}
-            className="group relative overflow-hidden flex items-center justify-between rounded-lg border border-slate-200 dark:border-white/5 bg-white dark:bg-white/[0.02] hover:bg-slate-50 dark:hover:bg-white/[0.04] hover:border-slate-300 dark:hover:border-white/10 p-3 transition-all duration-200"
+            className={`group relative overflow-hidden rounded-xl border border-white/10 shadow-sm hover:shadow-md transition-all ${priorityColors[task.priority] || priorityColors.now}`}
         >
-            <div className="flex items-center gap-3 flex-1 min-w-0 relative z-10">
+            <div className="flex items-center gap-3 p-4">
                 <div
-                    onPointerDown={(e) => controls.start(e)}
-                    className="cursor-grab active:cursor-grabbing text-slate-400 dark:text-slate-600 hover:text-slate-600 dark:hover:text-slate-400 touch-none flex-shrink-0 p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
+                    className="cursor-pointer hover:scale-105 active:scale-95 transition-transform"
+                    onClick={handlePriorityClick}
+                    title="点击切换优先级"
                 >
-                    <GripVertical className="w-4 h-4" />
+                    <PriorityBadge level={task.priority} />
                 </div>
-                {isEditing ? (
-                    <input
-                        ref={inputRef}
-                        type="text"
-                        value={editText}
-                        onChange={(e) => setEditText(e.target.value)}
-                        onBlur={handleSave}
-                        onKeyDown={handleKeyDown}
-                        className="flex-1 text-sm text-slate-700 dark:text-slate-200 font-medium tracking-tight bg-transparent border-b border-slate-300 dark:border-slate-600 focus:outline-none focus:border-indigo-500 dark:focus:border-indigo-400 px-1 py-0.5"
-                    />
-                ) : (
-                    <span
-                        className="text-sm text-slate-700 dark:text-slate-200 font-medium tracking-tight truncate cursor-text hover:text-slate-900 dark:hover:text-white transition-colors"
-                        onDoubleClick={handleEdit}
-                        title="Double-click to edit"
-                    >
-                        {task.text}
-                    </span>
-                )}
+
+                <div className="flex-1 min-w-0 space-y-2">
+                    <div className="flex items-start justify-between gap-4">
+                        {isEditing ? (
+                            <input
+                                ref={inputRef}
+                                type="text"
+                                value={editText}
+                                onChange={(e) => setEditText(e.target.value)}
+                                onBlur={handleSave}
+                                onKeyDown={handleKeyDown}
+                                className="w-full text-base text-slate-800 dark:text-slate-100 bg-transparent border-b border-indigo-500 focus:outline-none pb-1"
+                            />
+                        ) : (
+                            <span
+                                className="block text-base text-slate-800 dark:text-slate-100 leading-relaxed break-words cursor-text"
+                                onDoubleClick={handleEdit}
+                            >
+                                {task.text}
+                            </span>
+                        )}
+                    </div>
+
+                    <div className="flex items-center justify-end gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
+                        <button
+                            onClick={handleEdit}
+                            className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 rounded-lg transition-colors"
+                            title="编辑"
+                        >
+                            <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={() => onCopy(task.text)}
+                            className="p-2 text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10 rounded-lg transition-colors"
+                            title="复制"
+                        >
+                            <Copy className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={(e) => {
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const x = (rect.left + rect.width / 2) / window.innerWidth;
+                                const y = (rect.top + rect.height / 2) / window.innerHeight;
+                                confetti({ particleCount: 50, spread: 60, origin: { x, y }, colors: ['#10b981', '#34d399'], disableForReducedMotion: true, zIndex: 1000 });
+                                onComplete(task.id);
+                            }}
+                            className="p-2 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded-lg transition-colors"
+                            title="完成"
+                        >
+                            <Check className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={() => onDelete(task.id)}
+                            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-lg transition-colors"
+                            title="删除"
+                        >
+                            <Trash2 className="w-4 h-4" />
+                        </button>
+                    </div>
+                </div>
             </div>
-
-            <div className="flex items-center gap-1 flex-shrink-0 relative z-10">
-                <button
-                    onClick={(e) => {
-                        const rect = e.target.getBoundingClientRect();
-                        const x = (rect.left + rect.width / 2) / window.innerWidth;
-                        const y = (rect.top + rect.height / 2) / window.innerHeight;
-
-                        confetti({
-                            particleCount: 50,
-                            spread: 60,
-                            origin: { x, y },
-                            colors: ['#10b981', '#34d399', '#059669', '#ffffff'],
-                            disableForReducedMotion: true,
-                            zIndex: 1000,
-                        });
-
-                        onComplete(task.id);
-                    }}
-                    className="p-2 text-slate-500 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded-md transition-all duration-200 hover:scale-110"
-                    title="Complete"
-                >
-                    <Check className="w-4 h-4" />
-                </button>
-                <button
-                    onClick={handleEdit}
-                    className="p-1.5 text-slate-500 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 rounded-md transition-colors opacity-0 group-hover:opacity-100"
-                    title="Edit task"
-                >
-                    <Edit2 className="w-3.5 h-3.5" />
-                </button>
-                <button
-                    onClick={() => onCopy(task.text)}
-                    className="p-1.5 text-slate-500 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10 rounded-md transition-colors opacity-0 group-hover:opacity-100"
-                    title="Copy to clipboard"
-                >
-                    <Copy className="w-3.5 h-3.5" />
-                </button>
-                <button
-                    onClick={() => onDelete(task.id)}
-                    className="p-1.5 text-slate-500 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-md transition-colors opacity-0 group-hover:opacity-100"
-                    title="Delete"
-                >
-                    <Trash2 className="w-3.5 h-3.5" />
-                </button>
-            </div>
-        </Reorder.Item>
+        </Motion.div>
     );
 }
 

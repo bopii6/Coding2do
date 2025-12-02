@@ -34,7 +34,7 @@ function ProjectSidebar({ projects, activeProjectId, onSelectProject, onAddProje
                             <Folder className="w-4 h-4" />
                         </div>
                         <div>
-                            <h2 className="text-sm font-medium text-slate-700 dark:text-slate-200">Projects</h2>
+                            <h2 className="text-sm font-medium text-slate-700 dark:text-slate-200">项目列表</h2>
                         </div>
                     </div>
                 </div>
@@ -85,7 +85,7 @@ function ProjectSidebar({ projects, activeProjectId, onSelectProject, onAddProje
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        if (confirm(`Delete project "${project.name}" and all its tasks?`)) {
+                                        if (confirm(`确定要删除项目 "${project.name}" 及其所有任务吗?`)) {
                                             onDeleteProject(project.id);
                                         }
                                     }}
@@ -104,7 +104,7 @@ function ProjectSidebar({ projects, activeProjectId, onSelectProject, onAddProje
                             type="text"
                             value={newProjectName}
                             onChange={(e) => setNewProjectName(e.target.value)}
-                            placeholder="New Project..."
+                            placeholder="新项目..."
                             className="w-full bg-white dark:bg-white/[0.02] text-slate-900 dark:text-slate-200 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-slate-400 dark:focus:ring-slate-700 border border-slate-200 dark:border-white/5"
                             autoFocus
                             onBlur={() => !newProjectName && setIsAdding(false)}
@@ -116,7 +116,7 @@ function ProjectSidebar({ projects, activeProjectId, onSelectProject, onAddProje
                         className="w-full flex items-center gap-2 px-3 py-2 text-slate-500 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/[0.02] rounded-lg transition-colors text-sm font-medium mt-2"
                     >
                         <Plus className="w-4 h-4" />
-                        Add Project
+                        新建项目
                     </button>
                 )}
             </div>
