@@ -15,7 +15,8 @@ const DEFAULT_PROJECT_ID = 'default';
 const PRIORITY_LEVELS = ['later', 'now'];
 const DEFAULT_PRIORITY = 'later';
 
-const SUPABASE_AUTH_TIMEOUT = 10000;
+// 增加移动端和 PWA 的认证超时时间，给 session 恢复更多时间
+const SUPABASE_AUTH_TIMEOUT = 30000; // 30秒，给移动端更多时间
 const normalizePriority = (value) => (PRIORITY_LEVELS.includes(value) ? value : DEFAULT_PRIORITY);
 const priorityToWeight = (priority) => {
   const normalized = normalizePriority(priority);
@@ -257,8 +258,41 @@ function App() {
 
     const checkAuthAndRedirect = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        // 先尝试从 localStorage 检查是否有保存的 session
+        // 这可以加快移动端的加载速度
+        // 检查 Supabase 存储的 session key（Supabase 使用特定的 key 格式）
+        const supabaseStorageKey = Object.keys(localStorage).find(key => 
+          key.includes('supabase') && key.includes('auth-token')
+        );
+        const storedSession = supabaseStorageKey ? localStorage.getItem(supabaseStorageKey) : null;
+        
+        // 等待一下，确保 Supabase 有时间恢复 session
+        // 特别是在移动端或 PWA 环境中
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
         clearTimeout(timeoutId);
+        
+        if (sessionError) {
+          console.error('获取 session 失败:', sessionError);
+          // 如果有错误但之前有存储的 session，再等待一下重试
+          if (storedSession) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            const retryResult = await supabase.auth.getSession();
+            if (retryResult.data?.session?.user) {
+              setUser(retryResult.data.session.user);
+              await loadFromSupabase(retryResult.data.session.user.id);
+              finishLoading(() => {
+                setShowAuth(false);
+              });
+              return;
+            }
+          }
+          fallbackToLocal();
+          return;
+        }
+
         setUser(session?.user ?? null);
 
         if (session?.user) {
@@ -267,27 +301,56 @@ function App() {
             setShowAuth(false);
           });
         } else {
-          finishLoading(() => {
-            setShowAuth(true);
-          });
+          // 如果没有 session，检查是否之前登录过（通过 localStorage）
+          // 如果有历史记录，允许使用本地模式，不强制登录
+          const hasLocalData = localStorage.getItem('coding-todo-tasks') || 
+                               localStorage.getItem('coding-todo-backup-tasks');
+          
+          if (hasLocalData) {
+            // 有本地数据，允许离线使用，不强制登录
+            finishLoading(() => {
+              setShowAuth(false);
+            });
+          } else {
+            // 没有本地数据，显示登录界面
+            finishLoading(() => {
+              setShowAuth(true);
+            });
+          }
         }
       } catch (error) {
         console.error('检查认证状态失败:', error);
         clearTimeout(timeoutId);
+        // 出错时也允许使用本地模式
         fallbackToLocal();
       }
     };
 
     checkAuthAndRedirect();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth state changed:', event, session?.user?.email);
       setUser(session?.user ?? null);
       if (session?.user) {
         await loadFromSupabase(session.user.id);
         setShowAuth(false);
       } else {
-        loadFromLocalStorage();
-        setShowAuth(true);
+        // 只有在明确登出时才显示登录界面
+        // 如果是初始化时没有 session，允许使用本地模式
+        if (event === 'SIGNED_OUT') {
+          loadFromLocalStorage();
+          setShowAuth(true);
+        } else {
+          // 其他情况（如初始化），允许使用本地模式
+          const hasLocalData = localStorage.getItem('coding-todo-tasks') || 
+                               localStorage.getItem('coding-todo-backup-tasks');
+          if (!hasLocalData) {
+            setShowAuth(true);
+          } else {
+            loadFromLocalStorage();
+            setShowAuth(false);
+          }
+        }
       }
     });
 
@@ -332,7 +395,22 @@ function App() {
 
     setShowAuth(false);
     if (data.user) {
-      await loadFromSupabase(data.user.id);
+      // 登录成功后，确保 session 被保存并刷新
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        setUser(session.user);
+        await loadFromSupabase(session.user.id);
+        success('登录成功！');
+      } else {
+        // 如果没有立即获取到 session，等待一下再试
+        await new Promise(resolve => setTimeout(resolve, 500));
+        const retrySession = await supabase.auth.getSession();
+        if (retrySession.data?.session) {
+          setUser(retrySession.data.session.user);
+          await loadFromSupabase(retrySession.data.session.user.id);
+          success('登录成功！');
+        }
+      }
     }
   };
 
@@ -815,7 +893,11 @@ function App() {
   // ... (existing code)
 
   // 如果需要登录，先显示登录界面
+  // 但在移动端，如果有本地数据，允许先使用本地模式
   if (showAuth) {
+    const hasLocalData = localStorage.getItem('coding-todo-tasks') || 
+                         localStorage.getItem('coding-todo-backup-tasks');
+    
     return (
       <div className="relative min-h-screen bg-white dark:bg-[#020617] text-slate-900 dark:text-slate-50 overflow-hidden selection:bg-indigo-200 dark:selection:bg-indigo-500/30 transition-colors duration-300">
         <div className="absolute inset-0 bg-gradient-to-b from-slate-50 to-white dark:bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] dark:from-slate-900 dark:via-[#020617] dark:to-[#020617]" />
@@ -823,8 +905,12 @@ function App() {
         <div className="relative z-10 flex items-center justify-center min-h-screen p-4">
           <AuthModal
             onAuth={handleAuth}
-            onClose={() => {}} // 防止用户关闭登录界面
-            forceShow={true} // 强制显示登录界面
+            onClose={hasLocalData ? () => {
+              // 如果有本地数据，允许关闭登录界面，使用本地模式
+              setShowAuth(false);
+              loadFromLocalStorage();
+            } : undefined} // 没有本地数据时，防止用户关闭登录界面
+            forceShow={!hasLocalData} // 只有在没有本地数据时才强制显示登录界面
           />
         </div>
       </div>

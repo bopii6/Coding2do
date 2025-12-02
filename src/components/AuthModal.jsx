@@ -112,12 +112,12 @@ function AuthModal({ onAuth, onClose, forceShow = false }) {
                     </button>
                 </div>
 
-                {!forceShow && (
+                {!forceShow && onClose && (
                     <button
                         onClick={onClose}
                         className="mt-4 w-full text-sm text-slate-500 hover:text-slate-300 transition-colors"
                     >
-                        Continue without account
+                        暂时跳过，使用本地模式
                     </button>
                 )}
             </Motion.div>

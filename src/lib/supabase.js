@@ -21,6 +21,9 @@ export const supabase = isSupabaseConfigured()
             persistSession: true,
             detectSessionInUrl: true,
             lock: noLock,
+            storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+            storageKey: 'sb-auth-token', // 使用固定的 key，确保跨会话持久化
+            flowType: 'pkce', // 使用 PKCE flow，更适合移动端
         },
     })
     : null;
