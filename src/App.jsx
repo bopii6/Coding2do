@@ -170,7 +170,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [showAuth, setShowAuth] = useState(false);
   const [projects, setProjects] = useState([]);
-  const [activeProjectId, setActiveProjectId] = useState(DEFAULT_PROJECT_ID);
+  const [activeProjectId, setActiveProjectId] = useState(getDefaultProjectId());
   const [tasks, setTasks] = useState([]);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
