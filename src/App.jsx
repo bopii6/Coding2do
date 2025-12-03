@@ -11,7 +11,19 @@ import { supabase, isSupabaseConfigured } from './lib/supabase';
 import useAudioCue from './lib/useAudioCue';
 import { LogOut, User, Menu, X } from 'lucide-react';
 
-const DEFAULT_PROJECT_ID = 'default';
+// 获取或创建默认项目ID（使用有效的UUID）
+const getDefaultProjectId = () => {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return crypto.randomUUID();
+  }
+  let defaultId = window.localStorage.getItem('coding-todo-default-project-id');
+  if (!defaultId) {
+    defaultId = crypto.randomUUID();
+    window.localStorage.setItem('coding-todo-default-project-id', defaultId);
+  }
+  return defaultId;
+};
+
 const PRIORITY_LEVELS = ['later', 'now'];
 const DEFAULT_PRIORITY = 'later';
 
@@ -52,7 +64,7 @@ const hydrateHistoryItem = (item) => ({
 });
 
 const createDefaultProjectList = () => ([
-  { id: DEFAULT_PROJECT_ID, name: 'Default Project', createdAt: new Date().toISOString() }
+  { id: getDefaultProjectId(), name: 'Default Project', createdAt: new Date().toISOString() }
 ]);
 
 const safeParseStoredArray = (key) => {
@@ -84,11 +96,12 @@ const getStoredArrayWithBackup = (primaryKey, backupKey, fallbackFactory) => {
 
 const getLocalStorageSnapshot = () => {
   if (typeof window === 'undefined' || !window.localStorage) {
+    const defaultProjects = createDefaultProjectList();
     return {
-      projects: createDefaultProjectList(),
+      projects: defaultProjects,
       tasks: [],
       history: [],
-      activeProjectId: DEFAULT_PROJECT_ID,
+      activeProjectId: defaultProjects[0].id,
     };
   }
 
@@ -110,7 +123,7 @@ const getLocalStorageSnapshot = () => {
     () => []
   );
 
-  const activeProjectId = window.localStorage.getItem('coding-todo-active-project') || DEFAULT_PROJECT_ID;
+  const activeProjectId = window.localStorage.getItem('coding-todo-active-project') || projects[0]?.id || getDefaultProjectId();
 
   return {
     projects,
@@ -232,7 +245,7 @@ function App() {
       const savedActiveProject = localStorage.getItem('coding-todo-active-project');
       const projectExists = normalizedProjects.find(p => p.id === savedActiveProject);
 
-      setActiveProjectId(projectExists ? savedActiveProject : (normalizedProjects[0]?.id || DEFAULT_PROJECT_ID));
+      setActiveProjectId(projectExists ? savedActiveProject : normalizedProjects[0]?.id);
 
       setTasks(tasksRes.data?.map(t => hydrateTask({
         id: t.id,
@@ -647,7 +660,7 @@ function App() {
     setHistory(updatedHistory);
 
     if (activeProjectId === id) {
-      setActiveProjectId(updatedProjects[0]?.id || DEFAULT_PROJECT_ID);
+      setActiveProjectId(updatedProjects[0]?.id);
     }
     playAudioCue('delete');
 
@@ -711,6 +724,14 @@ function App() {
 
   // Task actions
   const addTask = async (text, priority = DEFAULT_PRIORITY) => {
+    // 验证当前项目是否存在
+    const currentProject = projects.find(p => p.id === activeProjectId);
+    if (!currentProject) {
+      error('当前项目不存在，请先创建或选择一个项目');
+      console.error('[addTask] Active project not found:', activeProjectId);
+      return;
+    }
+
     const newTask = {
       id: crypto.randomUUID(),
       text,
@@ -719,7 +740,7 @@ function App() {
       priority: normalizePriority(priority),
     };
 
-    console.log('[addTask] Creating task:', { id: newTask.id, text: newTask.text, priority: newTask.priority });
+    console.log('[addTask] Creating task:', { id: newTask.id, text: newTask.text, priority: newTask.priority, projectId: newTask.projectId });
 
     // 先更新本地状态（乐观更新）
     setTasks([...tasks, newTask]);
