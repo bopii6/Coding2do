@@ -10,20 +10,7 @@ export const isSupabaseConfigured = () => {
         supabaseAnonKey !== 'your_anon_key_here');
 };
 
-// Disable navigator.locks usage which can hang auth.getSession() in some browsers
-const noLock = async (_name, _acquireTimeout, fn) => await fn();
-
-// Create Supabase client (will be null if not configured)
+// 使用简化的配置，让 Supabase 使用默认值
 export const supabase = isSupabaseConfigured()
-    ? createClient(supabaseUrl, supabaseAnonKey, {
-        auth: {
-            autoRefreshToken: true,
-            persistSession: true,
-            detectSessionInUrl: true,
-            lock: noLock,
-            storage: typeof window !== 'undefined' ? window.localStorage : undefined,
-            storageKey: 'sb-auth-token', // 使用固定的 key，确保跨会话持久化
-            flowType: 'pkce', // 使用 PKCE flow，更适合移动端
-        },
-    })
+    ? createClient(supabaseUrl, supabaseAnonKey)
     : null;

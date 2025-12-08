@@ -191,17 +191,39 @@ function App() {
 
   // Load data from Supabase
   const loadFromSupabase = useCallback(async (userId) => {
+    console.log('[loadFromSupabase] 开始加载, userId:', userId);
+
     if (!supabase || !userId) {
+      console.log('[loadFromSupabase] supabase 或 userId 无效，使用本地数据');
       loadFromLocalStorage();
       return;
     }
 
     try {
-      const [projectsRes, tasksRes, historyRes] = await Promise.all([
+      console.log('[loadFromSupabase] 查询 Supabase...');
+      const startTime = Date.now();
+
+      // 添加超时保护，防止查询卡住
+      const queryTimeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('数据库查询超时 (15秒)')), 15000)
+      );
+
+      const queryPromise = Promise.all([
         supabase.from('projects').select('*').eq('user_id', userId).order('created_at'),
         supabase.from('tasks').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
         supabase.from('history').select('*').eq('user_id', userId).order('completed_at', { ascending: false })
       ]);
+
+      const [projectsRes, tasksRes, historyRes] = await Promise.race([queryPromise, queryTimeout]);
+
+      console.log(`[loadFromSupabase] 查询完成，耗时 ${Date.now() - startTime}ms`, {
+        projectsCount: projectsRes.data?.length ?? 0,
+        tasksCount: tasksRes.data?.length ?? 0,
+        historyCount: historyRes.data?.length ?? 0,
+        projectsError: projectsRes.error?.message,
+        tasksError: tasksRes.error?.message,
+        historyError: historyRes.error?.message
+      });
 
       const firstError = [projectsRes, tasksRes, historyRes].find(res => res.error);
       if (firstError?.error) {
@@ -215,7 +237,9 @@ function App() {
           name: p.name,
           createdAt: p.created_at
         }));
+        console.log('[loadFromSupabase] 加载了项目:', normalizedProjects.map(p => p.name));
       } else {
+        console.log('[loadFromSupabase] 无项目，创建默认项目...');
         // Create default project for new Supabase users with a proper UUID
         const defaultProject = {
           id: crypto.randomUUID(),
@@ -238,6 +262,7 @@ function App() {
           name: newProject.name,
           createdAt: newProject.created_at
         }];
+        console.log('[loadFromSupabase] 创建了默认项目');
       }
 
       setProjects(normalizedProjects);
@@ -263,149 +288,141 @@ function App() {
         completedAt: h.completed_at,
         priority_weight: h.priority_weight
       })) || []);
+
+      console.log('[loadFromSupabase] 完成！');
     } catch (error) {
-      console.error('Error loading from Supabase:', error);
-      loadFromLocalStorage();
+      console.error('[loadFromSupabase] 错误:', error);
+      // 加载失败时，只有在没有现有数据时才从本地加载
+      // 避免覆盖已经加载的数据
+      console.log('[loadFromSupabase] 保持现有数据（如果有）');
     }
   }, [loadFromLocalStorage]);
 
   // Check if user is logged in
   useEffect(() => {
+    console.log('=== [Auth] useEffect 启动 ===');
+
     if (!isSupabaseConfigured()) {
+      console.log('[Auth] Supabase 未配置，使用本地模式');
       loadFromLocalStorage();
       setLoading(false);
       return;
     }
 
-    let finished = false;
-    let timeoutId;
-    const finishLoading = (callback) => {
-      callback?.();
-      if (!finished) {
-        setLoading(false);
-        finished = true;
-      }
-    };
+    let isMounted = true;
+    let hasInitialized = false; // 标记是否已经初始化完成
 
-    const fallbackToLocal = () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-      loadFromLocalStorage();
-      finishLoading(() => {
-        setShowAuth(false);
+    console.log('[Auth] 开始监听 onAuthStateChange...');
+
+    // 简化的初始化：使用 onAuthStateChange 作为主要的认证检测方式
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log(`[Auth] 收到事件: ${event}`, {
+        hasSession: !!session,
+        userEmail: session?.user?.email,
+        isMounted,
+        hasInitialized
       });
-    };
 
-    timeoutId = setTimeout(() => {
-      console.warn('Supabase 认证超时，切换到本地模式');
-      fallbackToLocal();
-    }, SUPABASE_AUTH_TIMEOUT);
+      if (!isMounted) {
+        console.log('[Auth] 组件已卸载，忽略事件');
+        return;
+      }
 
-    const checkAuthAndRedirect = async () => {
-      try {
-        // 先尝试从 localStorage 检查是否有保存的 session
-        // 这可以加快移动端的加载速度
-        // 检查 Supabase 存储的 session key（Supabase 使用特定的 key 格式）
-        const supabaseStorageKey = Object.keys(localStorage).find(key =>
-          key.includes('supabase') && key.includes('auth-token')
-        );
-        const storedSession = supabaseStorageKey ? localStorage.getItem(supabaseStorageKey) : null;
-
-        // 等待一下，确保 Supabase 有时间恢复 session
-        // 特别是在移动端或 PWA 环境中
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-
-        clearTimeout(timeoutId);
-
-        if (sessionError) {
-          console.error('获取 session 失败:', sessionError);
-          // 如果有错误但之前有存储的 session，再等待一下重试
-          if (storedSession) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            const retryResult = await supabase.auth.getSession();
-            if (retryResult.data?.session?.user) {
-              setUser(retryResult.data.session.user);
-              await loadFromSupabase(retryResult.data.session.user.id);
-              finishLoading(() => {
-                setShowAuth(false);
-              });
-              return;
-            }
-          }
-          fallbackToLocal();
-          return;
-        }
-
-        setUser(session?.user ?? null);
+      if (event === 'INITIAL_SESSION') {
+        console.log('[Auth] 处理 INITIAL_SESSION...');
+        hasInitialized = true;
 
         if (session?.user) {
-          await loadFromSupabase(session.user.id);
-          finishLoading(() => {
-            setShowAuth(false);
-          });
-        } else {
-          // 如果没有 session，检查是否之前登录过（通过 localStorage）
-          // 如果有历史记录，允许使用本地模式，不强制登录
-          const hasLocalData = localStorage.getItem('coding-todo-tasks') ||
-            localStorage.getItem('coding-todo-backup-tasks');
-
-          if (hasLocalData) {
-            // 有本地数据，允许离线使用，不强制登录
-            finishLoading(() => {
-              setShowAuth(false);
-            });
-          } else {
-            // 没有本地数据，显示登录界面
-            finishLoading(() => {
-              setShowAuth(true);
-            });
+          console.log('[Auth] 发现已登录用户，开始加载数据...');
+          setUser(session.user);
+          try {
+            console.log('[Auth] 调用 loadFromSupabase...');
+            const startTime = Date.now();
+            await loadFromSupabase(session.user.id);
+            console.log(`[Auth] loadFromSupabase 完成，耗时 ${Date.now() - startTime}ms`);
+          } catch (err) {
+            console.error('[Auth] loadFromSupabase 失败:', err);
+            loadFromLocalStorage();
           }
-        }
-      } catch (error) {
-        console.error('检查认证状态失败:', error);
-        clearTimeout(timeoutId);
-        // 出错时也允许使用本地模式
-        fallbackToLocal();
-      }
-    };
-
-    checkAuthAndRedirect();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth state changed:', event, session?.user?.email);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        await loadFromSupabase(session.user.id);
-        setShowAuth(false);
-      } else {
-        // 只有在明确登出时才显示登录界面
-        // 如果是初始化时没有 session，允许使用本地模式
-        if (event === 'SIGNED_OUT') {
-          loadFromLocalStorage();
-          setShowAuth(true);
+          setShowAuth(false);
         } else {
-          // 其他情况（如初始化），允许使用本地模式
-          const hasLocalData = localStorage.getItem('coding-todo-tasks') ||
-            localStorage.getItem('coding-todo-backup-tasks');
-          if (!hasLocalData) {
-            setShowAuth(true);
-          } else {
+          console.log('[Auth] 无 session，尝试 getSession...');
+          try {
+            const { data, error } = await supabase.auth.getSession();
+            console.log('[Auth] getSession 结果:', { hasSession: !!data?.session, error });
+
+            if (data?.session?.user) {
+              setUser(data.session.user);
+              await loadFromSupabase(data.session.user.id);
+              setShowAuth(false);
+            } else {
+              console.log('[Auth] 无有效 session，使用本地模式');
+              loadFromLocalStorage();
+              setShowAuth(false);
+            }
+          } catch (err) {
+            console.error('[Auth] getSession 失败:', err);
             loadFromLocalStorage();
             setShowAuth(false);
           }
         }
+        console.log('[Auth] INITIAL_SESSION 处理完成，设置 loading=false');
+        setLoading(false);
+
+      } else if (event === 'SIGNED_IN') {
+        console.log('[Auth] 处理 SIGNED_IN...', { hasInitialized });
+
+        // 如果已经初始化过了，跳过重复的 SIGNED_IN 事件（可能是 token 刷新触发的）
+        if (hasInitialized) {
+          console.log('[Auth] 已经初始化过，跳过重复的 SIGNED_IN');
+          setUser(session.user); // 只更新用户状态
+          return;
+        }
+
+        hasInitialized = true;
+        setUser(session.user);
+        try {
+          console.log('[Auth] SIGNED_IN: 调用 loadFromSupabase...');
+          await loadFromSupabase(session.user.id);
+          console.log('[Auth] SIGNED_IN: loadFromSupabase 完成');
+        } catch (err) {
+          console.error('[Auth] SIGNED_IN: loadFromSupabase 失败:', err);
+        }
+        setShowAuth(false);
+        setLoading(false);
+
+      } else if (event === 'SIGNED_OUT') {
+        console.log('[Auth] 处理 SIGNED_OUT...');
+        setUser(null);
+        loadFromLocalStorage();
+        setShowAuth(true);
+        setLoading(false);
+
+      } else if (event === 'TOKEN_REFRESHED') {
+        console.log('[Auth] Token 刷新成功');
+      } else {
+        console.log(`[Auth] 未处理的事件: ${event}`);
       }
     });
 
+    // 设置一个备用超时，防止 onAuthStateChange 不触发
+    const fallbackTimeout = setTimeout(() => {
+      console.log('[Auth] 超时检查:', { isMounted, hasInitialized });
+      if (isMounted && !hasInitialized) {
+        console.warn('[Auth] 10秒超时，onAuthStateChange 未触发 INITIAL_SESSION，切换到本地模式');
+        loadFromLocalStorage();
+        setLoading(false);
+        setShowAuth(false);
+      }
+    }, 10000);
+
     return () => {
-      finished = true;
-      clearTimeout(timeoutId);
+      console.log('[Auth] useEffect 清理');
+      isMounted = false;
+      clearTimeout(fallbackTimeout);
       subscription.unsubscribe();
     };
-  }, [loadFromLocalStorage, loadFromSupabase]);
+  }, [loadFromLocalStorage, loadFromSupabase]); // 移除 loading 依赖，避免重复执行
 
   // Sync to localStorage (fallback) and auto-save
   useEffect(() => {
@@ -427,42 +444,35 @@ function App() {
     localStorage.setItem('coding-todo-active-project', activeProjectId);
   }, [activeProjectId]);
 
-  // Session recovery on focus/visibility change
+  // Session recovery on focus/visibility change - 简化版本
   useEffect(() => {
-    if (!isSupabaseConfigured()) return;
+    if (!isSupabaseConfigured() || !user) return;
+
+    let lastRefreshTime = 0;
+    const REFRESH_THROTTLE = 30000; // 30秒节流，避免频繁刷新
 
     const handleVisibilityChange = async () => {
       if (document.visibilityState === 'visible') {
-        console.log('App became visible, refreshing session...');
-        const { data, error } = await supabase.auth.getSession();
-        if (error) {
-          console.warn('Session refresh failed on visibility change:', error);
-        } else if (data?.session) {
-          console.log('Session refreshed successfully');
-          // Optional: Update user state if needed, though onAuthStateChange usually handles this
-          if (data.session.user.id !== user?.id) {
-            setUser(data.session.user);
-          }
+        const now = Date.now();
+        if (now - lastRefreshTime < REFRESH_THROTTLE) {
+          return;
+        }
+        lastRefreshTime = now;
+
+        // 简单的 token 刷新，不需要复杂的超时逻辑
+        try {
+          await supabase.auth.refreshSession();
+          console.log('Session token refreshed');
+        } catch (err) {
+          console.warn('Session refresh failed:', err.message);
         }
       }
     };
 
-    const handleFocus = async () => {
-      console.log('Window focused, checking session...');
-      const { data, error } = await supabase.auth.getSession();
-      if (error) {
-        console.warn('Session check failed on focus:', error);
-      } else if (data?.session) {
-        console.log('Session is active');
-      }
-    };
-
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleFocus);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleFocus);
     };
   }, [user]);
 
@@ -759,37 +769,56 @@ function App() {
 
     try {
       console.log('[addTask] Syncing to Supabase...');
+      console.log('[addTask] Task:', { id: newTask.id, text: newTask.text, projectId: newTask.projectId });
+      console.log('[addTask] User ID:', user.id);
 
-      await withRetry(async () => {
-        // 添加超时处理（30秒）
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('数据库操作超时')), 30000)
-        );
+      // 添加超时保护，防止请求挂起
+      const timeoutMs = 15000; // 15秒超时
 
-        const insertPromise = supabase.from('tasks').insert({
+      // 直接插入任务，不需要验证项目（前端已经验证过了）
+      const insertPromise = supabase
+        .from('tasks')
+        .insert({
           id: newTask.id,
           text: newTask.text,
           project_id: newTask.projectId,
           user_id: user.id,
           priority_weight: priorityToWeight(newTask.priority)
-        }).select().single();
+        })
+        .select()
+        .single();
 
-        const { data: insertedData, error: insertError } = await Promise.race([
-          insertPromise,
-          timeoutPromise
-        ]);
+      const insertTimeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('数据库插入超时，请检查网络连接')), timeoutMs)
+      );
 
-        if (insertError) throw insertError;
+      const { data: insertedData, error: insertError } = await Promise.race([
+        insertPromise,
+        insertTimeout
+      ]);
 
-        // 验证数据是否真的插入成功
-        if (!insertedData || insertedData.id !== newTask.id) {
-          throw new Error('数据验证失败');
+      if (insertError) {
+        console.error('[addTask] Insert error details:', {
+          message: insertError.message,
+          code: insertError.code,
+          details: insertError.details,
+          hint: insertError.hint
+        });
+
+        // 检查是否是外键约束错误
+        if (insertError.code === '23503') {
+          throw new Error('项目不存在，请重新加载页面');
         }
 
-        console.log('[addTask] Successfully created and verified:', insertedData);
-        return insertedData;
-      });
+        throw new Error(`数据库错误: ${insertError.message}`);
+      }
 
+      // 验证数据是否真的插入成功
+      if (!insertedData || insertedData.id !== newTask.id) {
+        throw new Error('数据验证失败');
+      }
+
+      console.log('[addTask] Successfully created and verified:', insertedData);
       success('任务已创建');
     } catch (err) {
       console.error('[addTask] Exception:', err);
