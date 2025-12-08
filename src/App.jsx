@@ -312,6 +312,11 @@ function App() {
     let isMounted = true;
     let hasInitialized = false; // 标记是否已经初始化完成
 
+    // 优化：先立即显示本地缓存数据，减少白屏时间
+    console.log('[Auth] 先加载本地缓存数据...');
+    loadFromLocalStorage();
+    setLoading(false); // 立即结束加载状态，显示UI
+
     console.log('[Auth] 开始监听 onAuthStateChange...');
 
     // 简化的初始化：使用 onAuthStateChange 作为主要的认证检测方式
@@ -333,63 +338,35 @@ function App() {
         hasInitialized = true;
 
         if (session?.user) {
-          console.log('[Auth] 发现已登录用户，开始加载数据...');
+          console.log('[Auth] 发现已登录用户');
           setUser(session.user);
-          try {
-            console.log('[Auth] 调用 loadFromSupabase...');
-            const startTime = Date.now();
-            await loadFromSupabase(session.user.id);
-            console.log(`[Auth] loadFromSupabase 完成，耗时 ${Date.now() - startTime}ms`);
-          } catch (err) {
-            console.error('[Auth] loadFromSupabase 失败:', err);
-            loadFromLocalStorage();
-          }
           setShowAuth(false);
+          // 在后台刷新 Supabase 数据，不阻塞 UI（本地数据已经显示）
+          loadFromSupabase(session.user.id)
+            .then(() => console.log('[Auth] 后台刷新数据完成'))
+            .catch(err => console.warn('[Auth] 后台刷新失败，保持本地数据:', err.message));
         } else {
-          console.log('[Auth] 无 session，尝试 getSession...');
-          try {
-            const { data, error } = await supabase.auth.getSession();
-            console.log('[Auth] getSession 结果:', { hasSession: !!data?.session, error });
-
-            if (data?.session?.user) {
-              setUser(data.session.user);
-              await loadFromSupabase(data.session.user.id);
-              setShowAuth(false);
-            } else {
-              console.log('[Auth] 无有效 session，使用本地模式');
-              loadFromLocalStorage();
-              setShowAuth(false);
-            }
-          } catch (err) {
-            console.error('[Auth] getSession 失败:', err);
-            loadFromLocalStorage();
-            setShowAuth(false);
-          }
+          console.log('[Auth] 无 session，显示登录界面');
+          setShowAuth(true);
         }
-        console.log('[Auth] INITIAL_SESSION 处理完成，设置 loading=false');
-        setLoading(false);
 
       } else if (event === 'SIGNED_IN') {
         console.log('[Auth] 处理 SIGNED_IN...', { hasInitialized });
 
-        // 如果已经初始化过了，跳过重复的 SIGNED_IN 事件（可能是 token 刷新触发的）
+        // 如果已经初始化过了，跳过重复的 SIGNED_IN 事件
         if (hasInitialized) {
           console.log('[Auth] 已经初始化过，跳过重复的 SIGNED_IN');
-          setUser(session.user); // 只更新用户状态
+          setUser(session.user);
           return;
         }
 
         hasInitialized = true;
         setUser(session.user);
-        try {
-          console.log('[Auth] SIGNED_IN: 调用 loadFromSupabase...');
-          await loadFromSupabase(session.user.id);
-          console.log('[Auth] SIGNED_IN: loadFromSupabase 完成');
-        } catch (err) {
-          console.error('[Auth] SIGNED_IN: loadFromSupabase 失败:', err);
-        }
         setShowAuth(false);
-        setLoading(false);
+        // 在后台刷新数据
+        loadFromSupabase(session.user.id)
+          .then(() => console.log('[Auth] SIGNED_IN: 后台刷新完成'))
+          .catch(err => console.warn('[Auth] SIGNED_IN: 后台刷新失败:', err.message));
 
       } else if (event === 'SIGNED_OUT') {
         console.log('[Auth] 处理 SIGNED_OUT...');
@@ -405,24 +382,14 @@ function App() {
       }
     });
 
-    // 设置一个备用超时，防止 onAuthStateChange 不触发
-    const fallbackTimeout = setTimeout(() => {
-      console.log('[Auth] 超时检查:', { isMounted, hasInitialized });
-      if (isMounted && !hasInitialized) {
-        console.warn('[Auth] 10秒超时，onAuthStateChange 未触发 INITIAL_SESSION，切换到本地模式');
-        loadFromLocalStorage();
-        setLoading(false);
-        setShowAuth(false);
-      }
-    }, 10000);
+    // 不再需要超时回退，因为已经先显示了本地数据
 
     return () => {
       console.log('[Auth] useEffect 清理');
       isMounted = false;
-      clearTimeout(fallbackTimeout);
       subscription.unsubscribe();
     };
-  }, [loadFromLocalStorage, loadFromSupabase]); // 移除 loading 依赖，避免重复执行
+  }, [loadFromLocalStorage, loadFromSupabase]);
 
   // Sync to localStorage (fallback) and auto-save
   useEffect(() => {
